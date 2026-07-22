@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' })); // fotos em base64 podem ser grandes
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-flash-latest';
 
 if (!GEMINI_API_KEY) {
   console.error('ERRO: variável de ambiente GEMINI_API_KEY não definida. Crie um arquivo .env (veja .env.example).');
