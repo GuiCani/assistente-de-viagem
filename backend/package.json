@@ -1,0 +1,14 @@
+{
+  "name": "servidor-cupons",
+  "version": "1.0.0",
+  "description": "Servidor que recebe fotos de cupons e chama a API do Gemini, mantendo a chave de API escondida.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  }
+}
