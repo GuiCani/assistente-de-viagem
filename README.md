@@ -17,24 +17,18 @@ Este projeto roda hoje **dentro do Claude, como um Artifact** (`index.html` é o
 
 ## Roadmap para virar um app independente
 
-Pra rodar fora do Claude (hospedado em qualquer lugar, sem depender de Artifacts), faltam dois blocos principais:
+Pra rodar fora do Claude (hospedado em qualquer lugar, sem depender de Artifacts):
 
-### 1. Armazenamento
-Trocar `window.storage` por uma alternativa real:
-- **Mais simples (só neste dispositivo):** `localStorage` ou `IndexedDB` no navegador — sem servidor, mas os dados não sincronizam entre aparelhos.
-- **Multi-dispositivo:** um banco de dados de verdade (ex: Supabase, Firebase, Postgres) por trás de uma API própria.
+### 1. Armazenamento ✅ feito
+`index.html` agora detecta se `window.storage` (do Claude) não existe e, nesse caso, usa um shim equivalente baseado em `localStorage` do navegador — os dados ficam salvos só no aparelho de cada pessoa, sem precisar de conta/login. O mesmo arquivo funciona dentro e fora do Claude sem alterações.
 
-### 2. Leitura do cupom via IA
-Trocar a chamada direta `fetch('https://api.anthropic.com/...')` do navegador por uma chamada a um **backend próprio** (ex: uma função serverless na Vercel ou Netlify), que:
-- Recebe a imagem do navegador.
-- Guarda a chave de API da Anthropic (`ANTHROPIC_API_KEY`) como variável de ambiente no servidor — nunca no código do navegador.
-- Chama a API da Anthropic e devolve o resultado (categoria, data, valor) pro app.
+### 2. Leitura do cupom via IA ✅ feito
+Adicionado um painel **"🔑 Chave de API"** no app, onde cada pessoa cola sua própria chave da Anthropic (pega em [console.anthropic.com](https://console.anthropic.com)). A chave fica salva localmente (mesmo mecanismo da Fase 1) e só é usada quando configurada — dentro do Claude, sem chave configurada, a leitura continua funcionando exatamente como antes, sem exigir nada extra.
 
-Isso requer uma **chave de API própria** em [console.anthropic.com](https://console.anthropic.com) (cobrança separada da assinatura do Claude, por uso — poucos centavos por cupom lido).
+Modelo adequado para uso pessoal/grupo pequeno: a chave de cada pessoa fica no navegador dela, o que é aceitável em baixa escala mas não é o padrão que um produto com muitos usuários desconhecidos usaria (nesse caso, o ideal seria um backend próprio guardando a chave no servidor).
 
 ### 3. Empacotar como app mobile
-Depois dos dois pontos acima resolvidos, dá pra:
-- Continuar como **PWA** ("Adicionar à Tela de Início"), como já está configurado (manifest + ícone).
+- Continuar como **PWA** ("Adicionar à Tela de Início"), como já está configurado (manifest + ícone) — funciona hospedando como site estático (ex: GitHub Pages).
 - Ou empacotar como app nativo de verdade (ex: com Capacitor/Cordova) pra publicar na Play Store, se quiser ir mais longe.
 
 ## Estrutura do projeto

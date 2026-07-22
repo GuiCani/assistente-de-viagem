@@ -181,7 +181,11 @@
 
   <div id="trip-bar"></div>
   <div id="settings-panel" style="display:none;"></div>
-  <div style="margin-bottom:16px;"><button class="link-btn" onclick="toggleSettings()">⚙ Cotas por região</button></div>
+  <div id="apikey-panel" style="display:none;"></div>
+  <div style="margin-bottom:16px; display:flex; gap:16px; flex-wrap:wrap;">
+    <button class="link-btn" onclick="toggleSettings()">⚙ Cotas por região</button>
+    <button class="link-btn" onclick="toggleApiKeyPanel()">🔑 Chave de API</button>
+  </div>
 
   <div class="context-label" id="context-label"></div>
   <div class="totals" id="totals"></div>
@@ -204,6 +208,36 @@
 </div>
 
 <script>
+// Compatibilidade: se não estiver rodando dentro de um Claude Artifact,
+// window.storage não existe ainda. Criamos aqui uma versão equivalente
+// usando localStorage do navegador, guardando os dados só neste aparelho.
+// Dentro do Claude, window.storage já existe e este bloco não faz nada.
+if (!window.storage) {
+  window.storage = {
+    async get(key, shared) {
+      const raw = localStorage.getItem(key);
+      if (raw === null) throw new Error('Chave não encontrada: ' + key);
+      return { key, value: raw, shared: !!shared };
+    },
+    async set(key, value, shared) {
+      localStorage.setItem(key, value);
+      return { key, value, shared: !!shared };
+    },
+    async delete(key, shared) {
+      localStorage.removeItem(key);
+      return { key, deleted: true, shared: !!shared };
+    },
+    async list(prefix, shared) {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!prefix || k.startsWith(prefix)) keys.push(k);
+      }
+      return { keys, prefix, shared: !!shared };
+    }
+  };
+}
+
 const CATS = {
   combustivel: { label:'Combustível', icon:'⛽', color:'#B3452F' },
   alimentacao: { label:'Alimentação', icon:'🍽', color:'#2F5D50' },
@@ -220,6 +254,9 @@ let editingTripRegionId = null;
 let editingRegionId = null;
 let imageCache = {};
 let viewingImageId = null;
+let apiKeyPanelOpen = false;
+let personalApiKey = null;
+let editingApiKey = false;
 
 function fmtBRL(v){ return (v||0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
 function toISODate(d){
@@ -247,6 +284,7 @@ async function loadAll(){
   }
   try{ const r = await window.storage.get('trips-all', false); trips = r ? JSON.parse(r.value) : []; }catch(e){ trips = []; }
   try{ const r = await window.storage.get('despesas-all', false); expenses = r ? JSON.parse(r.value) : []; }catch(e){ expenses = []; }
+  try{ const r = await window.storage.get('config-api-key', false); personalApiKey = r ? r.value : null; }catch(e){ personalApiKey = null; }
   render();
 }
 async function saveSettings(){ try{ await window.storage.set('settings', JSON.stringify(settings), false); }catch(e){ console.error(e); } }
@@ -256,6 +294,29 @@ async function saveExpenses(){ try{ await window.storage.set('despesas-all', JSO
 function getActiveTrip(){ return trips.find(t => t.status === 'ativa'); }
 
 function toggleSettings(){ settingsOpen = !settingsOpen; render(); }
+
+function toggleApiKeyPanel(){ apiKeyPanelOpen = !apiKeyPanelOpen; render(); }
+function startEditApiKey(){ editingApiKey = true; render(); }
+function cancelEditApiKey(){ editingApiKey = false; render(); }
+async function saveApiKey(){
+  const input = document.getElementById('api-key-input');
+  if(!input) return;
+  const value = input.value.trim();
+  if(!value) return;
+  personalApiKey = value;
+  try{ await window.storage.set('config-api-key', value, false); }catch(e){ console.error(e); }
+  editingApiKey = false;
+  render();
+}
+async function removeApiKey(){
+  personalApiKey = null;
+  try{ await window.storage.delete('config-api-key', false); }catch(e){ console.error(e); }
+  render();
+}
+function maskApiKey(key){
+  if(!key || key.length < 8) return '••••••••';
+  return key.slice(0,7) + '••••••••' + key.slice(-4);
+}
 
 function addRegion(){
   const name = document.getElementById('new-region-name').value.trim();
@@ -424,10 +485,17 @@ Regras:
 - "valor": valor TOTAL do cupom, número com ponto decimal (nunca vírgula).
 - Se não conseguir ler o cupom com confiança, use "categoria":"outros" e os demais campos null.`;
 
+  const headers = { 'Content-Type': 'application/json' };
+  if (personalApiKey) {
+    headers['x-api-key'] = personalApiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+  }
+
   try{
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers,
       body: JSON.stringify({
         model:'claude-sonnet-4-6',
         max_tokens:1000,
@@ -438,6 +506,9 @@ Regras:
       })
     });
     const data = await response.json();
+    if(data.error){
+      throw new Error(data.error.message || 'Erro na chamada da API');
+    }
     const textBlock = (data.content || []).find(b => b.type === 'text');
     let jsonText = textBlock ? textBlock.text : '{}';
     jsonText = jsonText.replace(/```json|```/g,'').trim();
@@ -451,7 +522,7 @@ Regras:
       estabelecimento: parsed.estabelecimento || ''
     });
   }catch(err){
-    setResult(id, {status:'error'});
+    setResult(id, {status:'error', errorMessage: !personalApiKey ? 'Sem chave de API configurada (necessária fora do Claude)' : err.message});
   }
 }
 
@@ -534,10 +605,44 @@ async function generateZip(tripId){
 function render(){
   renderTripBar();
   renderSettingsPanel();
+  renderApiKeyPanel();
   renderTotals();
   renderDropzone();
   renderList();
   renderHistory();
+}
+
+function renderApiKeyPanel(){
+  const el = document.getElementById('apikey-panel');
+  el.style.display = apiKeyPanelOpen ? 'block' : 'none';
+  if(!apiKeyPanelOpen) return;
+
+  if(personalApiKey && !editingApiKey){
+    el.innerHTML = `<div class="panel">
+      <h3>Chave de API da Anthropic</h3>
+      <p class="hint" style="margin-top:0;">Configurada — usada para ler os cupons quando este app roda fora do Claude.</p>
+      <div class="region-item">
+        <span style="font-family:'IBM Plex Mono',monospace;">${maskApiKey(personalApiKey)}</span>
+        <button onclick="startEditApiKey()">editar</button>
+        <button onclick="removeApiKey()">remover</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = `<div class="panel">
+    <h3>Chave de API da Anthropic</h3>
+    <p class="hint" style="margin-top:0;">
+      Necessária só quando este app roda <b>fora do Claude</b> (como site independente).
+      Dentro do Claude, a leitura do cupom funciona sem precisar disso.<br><br>
+      Pegue a sua em <a href="https://console.anthropic.com" target="_blank" style="color:var(--amber);">console.anthropic.com</a> — cobrança separada, por uso (poucos centavos por cupom lido).
+    </p>
+    <div class="add-region-form" style="grid-template-columns:1fr auto;">
+      <input id="api-key-input" type="password" placeholder="sk-ant-..." value="${editingApiKey && personalApiKey ? personalApiKey : ''}">
+      <button class="btn btn-ghost" onclick="saveApiKey()">Salvar</button>
+    </div>
+    ${editingApiKey ? `<div style="margin-top:8px;"><button class="link-btn" onclick="cancelEditApiKey()">cancelar</button></div>` : ''}
+  </div>`;
 }
 
 function renderTripBar(){
@@ -690,7 +795,7 @@ function renderList(){
     if(e.status === 'error'){
       return `<div class="stub review">
         <div class="stub-top"><span class="stamp outros">Falha na leitura</span></div>
-        <div class="flag">Não foi possível ler este cupom. Remova e tente novamente.</div>
+        <div class="flag">${e.errorMessage ? e.errorMessage : 'Não foi possível ler este cupom.'} Remova e tente novamente.</div>
         <div class="stub-actions"><button onclick="deleteExpense('${e.id}')">Remover</button></div>
       </div>`;
     }
