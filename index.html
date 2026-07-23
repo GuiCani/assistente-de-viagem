@@ -337,6 +337,24 @@ async function endTrip(tripId){
   await generateZip(tripId);
 }
 
+async function deleteTrip(tripId){
+  const trip = trips.find(t => t.id === tripId);
+  if(!trip) return;
+  const confirmado = confirm(`Remover a viagem "${trip.label}" e todos os cupons dela? Essa ação não pode ser desfeita. Se ainda não baixou o ZIP, baixe antes de remover.`);
+  if(!confirmado) return;
+
+  const expensesDaViagem = expenses.filter(e => e.tripId === tripId);
+  for(const e of expensesDaViagem){
+    try{ await window.storage.delete('despesas-img:'+e.id, false); }catch(err){}
+  }
+  expenses = expenses.filter(e => e.tripId !== tripId);
+  trips = trips.filter(t => t.id !== tripId);
+
+  await saveExpenses();
+  await saveTrips();
+  render();
+}
+
 function startEditTripDate(tripId){ editingTripId = tripId; render(); }
 function cancelEditTripDate(){ editingTripId = null; render(); }
 function saveTripDate(tripId){
@@ -672,9 +690,11 @@ function renderSettingsPanel(){
 function renderTotals(){
   const active = getActiveTrip();
   const contextLabel = document.getElementById('context-label');
-  const scoped = active ? expenses.filter(e => e.tripId === active.id) : expenses;
+  const scoped = active
+    ? expenses.filter(e => e.tripId === active.id)
+    : expenses.filter(e => !trips.some(t => t.id === e.tripId && t.status === 'encerrada'));
 
-  contextLabel.textContent = active ? `Exibindo: viagem atual — ${active.label}` : 'Exibindo: histórico completo (nenhuma viagem em andamento)';
+  contextLabel.textContent = active ? `Exibindo: viagem atual — ${active.label}` : 'Exibindo: despesas sem viagem (nenhuma viagem em andamento)';
 
   const sums = {combustivel:0, alimentacao:0, outros:0};
   let total = 0;
@@ -766,7 +786,10 @@ function renderHistory(){
         <div class="name">${t.label}</div>
         <div class="sub">${t.region} &middot; ${formatDate(t.startDate)} a ${formatDate(t.endDate)} &middot; alimentação: ${fmtBRL(stats.totalSpent)} de ${fmtBRL(stats.totalQuota)}</div>
       </div>
-      <button class="btn btn-ghost" onclick="generateZip('${t.id}')">Baixar ZIP</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" onclick="generateZip('${t.id}')">Baixar ZIP</button>
+        <button class="btn btn-danger" onclick="deleteTrip('${t.id}')">Remover</button>
+      </div>
     </div>`;
   }).join('');
 }
