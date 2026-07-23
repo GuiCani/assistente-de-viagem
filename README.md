@@ -22,7 +22,7 @@ Celular (index.html) → Raspberry Pi (backend/server.js, via Tailscale Funnel) 
 
 ### Como rodar o backend (Raspberry Pi)
 
-Veja `backend/README.md` (ou os comentários em `backend/server.js`) para os detalhes do servidor. Resumo:
+Veja os comentários em `backend/server.js` para os detalhes do servidor. Resumo:
 ```bash
 cd backend
 npm install
