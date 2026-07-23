@@ -45,6 +45,16 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
 - **Fase 2** (branch `fase-2-chave-api-propria`, não usada na versão final): cada pessoa configurava a própria chave de API. Abandonada em favor do servidor próprio, mais seguro.
 - **Fase 3**: servidor próprio no Raspberry Pi escondendo a chave — versão atual.
 
+## Próximos passos (planejado, não iniciado)
+
+- **Fase 4**: separar `index.html` em três arquivos (`index.html`, `style.css`, `app.js`). Não é necessário para o funcionamento — é uma melhoria de organização/manutenção, adiada por decisão consciente pra depois. Inclui também extrair o ícone do app (hoje embutido como base64 gigante dentro do `<head>`) para um arquivo `icon.png` de verdade, referenciado normalmente no HTML.
+- **Fase 5**: criar uma página separada para o histórico de viagens. Ideia: a página principal passa a mostrar só a última viagem encerrada (resumo rápido), e o histórico completo (todas as viagens antigas, com os botões de baixar ZIP de novo) muda para uma página própria, acessada por um link/menu.
+- **Fase 6 (maior escopo, mudança de arquitetura)**: mover o armazenamento de `localStorage` (no navegador) para o servidor (Raspberry Pi), evitando que o usuário perca fotos de cupons ou histórico de viagens ao limpar dados do navegador, trocar de aparelho, ou reinstalar o app. Pontos a decidir antes de implementar:
+  - **Identificação do usuário sem exigir login de verdade**: hoje o app não pede login (decisão consciente, pra manter simples). Pra guardar dados por pessoa no servidor, precisa de alguma forma de identificar "de quem são esses dados" — opções a avaliar: um código/token único gerado e mostrado pro usuário guardar (tipo uma "chave de recuperação"), ou um cadastro leve (nome/e-mail, sem senha).
+  - **Onde guardar as imagens no servidor**: banco de dados (blob) vs. arquivos soltos no disco do Pi, organizados por usuário/viagem.
+  - **Migração**: como levar os dados que já existem no `localStorage` de quem já usa o app pra esse novo modelo, sem perder nada no meio do caminho.
+  - Isso também reduz (mas não elimina) a necessidade das ideias de "botão de limpar cache" discutidas antes — mesmo com servidor, pode fazer sentido ter uma limpeza manual de viagens muito antigas.
+
 ## Estrutura do projeto
 
 ```
