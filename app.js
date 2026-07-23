@@ -530,7 +530,7 @@ function renderList(){
     if(e.status === 'error'){
       return `<div class="stub review">
         <div class="stub-top"><span class="stamp outros">Falha na leitura</span></div>
-        <div class="flag">Não foi possível ler este cupom. Remova e tente novamente.</div>
+        <div class="flag">${e.errorMessage ? e.errorMessage : 'Não foi possível ler este cupom.'} Remova e tente novamente.</div>
         <div class="stub-actions"><button onclick="deleteExpense('${e.id}')">Remover</button></div>
       </div>`;
     }
