@@ -54,6 +54,11 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
   - **Onde guardar as imagens no servidor**: banco de dados (blob) vs. arquivos soltos no disco do Pi, organizados por usuário/viagem.
   - **Migração**: como levar os dados que já existem no `localStorage` de quem já usa o app pra esse novo modelo, sem perder nada no meio do caminho.
   - Isso também reduz (mas não elimina) a necessidade das ideias de "botão de limpar cache" discutidas antes — mesmo com servidor, pode fazer sentido ter uma limpeza manual de viagens muito antigas.
+- **Fase 7**: criar processo de cadastro e login na aplicação. Isso substitui a opção de "identificação sem login de verdade" cogitada na Fase 6 — o usuário passa a ter uma conta de verdade, o que facilita acessar os mesmos dados de aparelhos diferentes. Pontos a decidir antes de implementar:
+  - **Cadastro**: nome/e-mail/senha próprios, ou login via provedor externo (Google, por exemplo) para não precisar guardar senha.
+  - **Segurança**: se for senha própria, exige hash/salt (nunca texto puro) e um fluxo de recuperação de senha (esqueci minha senha).
+  - **Sessão**: como manter o usuário logado entre visitas (token/cookie), e por quanto tempo.
+  - **Dependência da Fase 6**: login sozinho não resolve nada sem os dados morarem no servidor — as duas fases andam juntas (login identifica "quem é", Fase 6 decide "onde ficam os dados dessa pessoa").
 
 ## Estrutura do projeto
 
