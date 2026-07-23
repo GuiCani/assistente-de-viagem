@@ -47,7 +47,7 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
 
 ## Próximos passos (planejado, não iniciado)
 
-- **Fase 4**: separar `index.html` em três arquivos (`index.html`, `style.css`, `app.js`). Não é necessário para o funcionamento — é uma melhoria de organização/manutenção, adiada por decisão consciente pra depois. Inclui também extrair o ícone do app (hoje embutido como base64 gigante dentro do `<head>`) para um arquivo `icon.png` de verdade, referenciado normalmente no HTML.
+- **Fase 4** ✅ feito: `index.html` separado em três arquivos (`index.html`, `style.css`, `app.js`), e os ícones extraídos de base64 embutido para arquivos `.png` reais na pasta `icons/`.
 - **Fase 5**: criar uma página separada para o histórico de viagens. Ideia: a página principal passa a mostrar só a última viagem encerrada (resumo rápido), e o histórico completo (todas as viagens antigas, com os botões de baixar ZIP de novo) muda para uma página própria, acessada por um link/menu.
 - **Fase 6 (maior escopo, mudança de arquitetura)**: mover o armazenamento de `localStorage` (no navegador) para o servidor (Raspberry Pi), evitando que o usuário perca fotos de cupons ou histórico de viagens ao limpar dados do navegador, trocar de aparelho, ou reinstalar o app. Pontos a decidir antes de implementar:
   - **Identificação do usuário sem exigir login de verdade**: hoje o app não pede login (decisão consciente, pra manter simples). Pra guardar dados por pessoa no servidor, precisa de alguma forma de identificar "de quem são esses dados" — opções a avaliar: um código/token único gerado e mostrado pro usuário guardar (tipo uma "chave de recuperação"), ou um cadastro leve (nome/e-mail, sem senha).
@@ -59,7 +59,13 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
 
 ```
 assistente-de-viagem/
-├── index.html          # App completo (frontend), independente do Claude
+├── index.html          # Estrutura da página (frontend)
+├── style.css            # Estilos
+├── app.js               # Lógica do app (viagens, cotas, cupons, armazenamento)
+├── icons/
+│   ├── icon-180.png      # Ícone para "Adicionar à tela inicial" (iOS)
+│   ├── icon-192.png      # Ícone do manifest (PWA)
+│   └── icon-512.png      # Ícone do manifest (PWA, alta resolução)
 ├── backend/
 │   ├── server.js        # Servidor que fala com o Gemini (roda no Raspberry Pi)
 │   ├── package.json
