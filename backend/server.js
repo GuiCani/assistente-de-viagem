@@ -35,21 +35,38 @@ app.post('/analisar-cupom', async (req, res) => {
       return res.status(400).json({ error: 'Campo imageBase64 é obrigatório.' });
     }
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inline_data: { mime_type: mediaType || 'image/jpeg', data: imageBase64 } },
-              { text: PROMPT }
-            ]
-          }]
-        })
-      }
-    );
+    // Timeout explícito: sem isso, se o Gemini travar, o pedido fica
+    // pendurado indefinidamente e o app só recebe um erro genérico de rede.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s
+
+    let response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: mediaType || 'image/jpeg', data: imageBase64 } },
+                { text: PROMPT }
+              ]
+            }]
+          }),
+          signal: controller.signal
+        }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Limite de requisições (429): mensagem específica para diferenciar de outros erros.
+    if (response.status === 429) {
+      console.error('Gemini retornou 429 (limite de requisições atingido).');
+      return res.status(429).json({ error: 'Limite de leituras por minuto atingido. Espere um minuto e tente de novo.' });
+    }
 
     const data = await response.json();
 
@@ -61,6 +78,10 @@ app.post('/analisar-cupom', async (req, res) => {
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     res.json({ text });
   } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('Timeout esperando resposta do Gemini.');
+      return res.status(504).json({ error: 'O servidor de leitura demorou demais para responder (timeout).' });
+    }
     console.error('Erro interno:', err);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }

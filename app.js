@@ -267,16 +267,27 @@ async function handleFile(file){
   try{ await window.storage.set('despesas-img:'+id, base64, false); }catch(e){ }
   imageCache[id] = base64;
 
+  let response, data;
   try{
-    const response = await fetch(BACKEND_URL, {
+    response = await fetch(BACKEND_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ imageBase64: base64, mediaType: 'image/jpeg' })
     });
-    const data = await response.json();
-    if(data.error){
-      throw new Error(data.error);
-    }
+    data = await response.json();
+  }catch(err){
+    // Falha de conexão de verdade: sem internet, Pi/Tailscale fora do ar, etc.
+    setResult(id, {status:'error', errorMessage: 'Não foi possível falar com o servidor de leitura (verifique sua internet ou se o servidor está no ar).'});
+    return;
+  }
+
+  if(data.error){
+    // O servidor respondeu, mas com um erro específico (limite de requisições, timeout do Gemini, etc.)
+    setResult(id, {status:'error', errorMessage: data.error});
+    return;
+  }
+
+  try{
     let jsonText = data.text || '{}';
     jsonText = jsonText.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(jsonText);
@@ -289,7 +300,7 @@ async function handleFile(file){
       estabelecimento: parsed.estabelecimento || ''
     });
   }catch(err){
-    setResult(id, {status:'error', errorMessage: 'Não foi possível falar com o servidor de leitura.'});
+    setResult(id, {status:'error', errorMessage: 'O servidor leu o cupom, mas devolveu uma resposta em formato inesperado.'});
   }
 }
 
