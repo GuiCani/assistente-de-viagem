@@ -425,6 +425,9 @@ function renderTripBar(){
        <button class="link-btn" onclick="cancelEditTripRegion()">cancelar</button>`
     : `${active.region} <button class="link-btn" onclick="startEditTripRegion('${active.id}')">editar</button>`;
 
+  const todayStats = stats.perDay.find(d => d.date === today) || {quota: active.dailyQuota, spent: 0};
+  const creditoHoje = todayStats.quota - todayStats.spent;
+
   const dayRows = stats.perDay.map(d => {
     const pct = d.quota > 0 ? Math.min(100, (d.spent/d.quota)*100) : 0;
     const fillColor = d.spent > d.quota ? 'var(--rust)' : (pct > 80 ? 'var(--amber)' : 'var(--highway)');
@@ -453,8 +456,8 @@ function renderTripBar(){
     </div>
     <div class="quota-wrap">
       <div class="quota-row"><span>Cota de alimentação</span><span>${fmtBRL(active.dailyQuota)}/dia</span></div>
-      <div class="credit-highlight" style="color:${stats.creditoAtual < 0 ? 'var(--rust)' : 'var(--highway)'}">
-        ${stats.creditoAtual < 0 ? `Cota estourada em ${fmtBRL(Math.abs(stats.creditoAtual))}` : `Crédito disponível hoje: ${fmtBRL(stats.creditoAtual)}`}
+      <div class="credit-highlight" style="color:${creditoHoje < 0 ? 'var(--rust)' : 'var(--highway)'}">
+        ${creditoHoje < 0 ? `Cota estourada hoje em ${fmtBRL(Math.abs(creditoHoje))}` : `Crédito disponível hoje: ${fmtBRL(creditoHoje)}`}
       </div>
       <div class="day-list">${dayRows}</div>
       ${foraDoPeriodoHtml}
@@ -580,16 +583,28 @@ function renderList(){
   }).join('');
 }
 
+function tripCategorySums(tripId){
+  const sums = {combustivel:0, alimentacao:0, outros:0};
+  expenses.forEach(e => {
+    if(e.tripId === tripId && (e.status === 'ok' || e.status === 'review')){
+      sums[e.categoria] = (sums[e.categoria]||0) + (e.valor||0);
+    }
+  });
+  return sums;
+}
+
 function renderHistory(){
   const closed = trips.filter(t => t.status === 'encerrada').sort((a,b) => b.endDate.localeCompare(a.endDate));
   const el = document.getElementById('history-section');
   if(closed.length === 0){ el.innerHTML = ''; return; }
   el.innerHTML = `<div class="section-label">Viagens encerradas</div>` + closed.map(t => {
     const stats = tripFoodStats(t);
+    const catSums = tripCategorySums(t.id);
     return `<div class="history-item">
       <div class="info">
         <div class="name">${t.label}</div>
-        <div class="sub">${t.region} &middot; ${formatDate(t.startDate)} a ${formatDate(t.endDate)} &middot; alimentação: ${fmtBRL(stats.totalSpent)} de ${fmtBRL(stats.totalQuota)}</div>
+        <div class="sub">${t.region} &middot; ${formatDate(t.startDate)} a ${formatDate(t.endDate)}</div>
+        <div class="sub">${CATS.combustivel.icon} ${fmtBRL(catSums.combustivel)} &middot; ${CATS.alimentacao.icon} ${fmtBRL(stats.totalSpent)} &middot; ${CATS.outros.icon} ${fmtBRL(catSums.outros)}</div>
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost" onclick="generateZip('${t.id}')">Baixar ZIP</button>
