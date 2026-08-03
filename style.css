@@ -105,6 +105,8 @@
   .stub-actions button{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.04em; text-transform:uppercase; background:none; border:none; color:var(--ink-soft); cursor:pointer; padding:0; text-decoration:underline; }
   .stub-actions button:hover{ color:var(--rust); }
   .stub-img{ margin-top:10px; max-width:100%; border-radius:4px; border:1px solid #C9C0A8; }
+  .stub-pdf-link{ margin-top:10px; display:inline-block; padding:8px 12px; border-radius:4px; border:1px solid #C9C0A8; color:var(--ink); font-size:13px; text-decoration:none; font-weight:500; }
+  .stub-pdf-link:hover{ border-color:var(--highway); color:var(--highway); }
   .stub.processing{ display:flex; align-items:center; gap:10px; color:var(--ink-soft); font-size:13px; }
   .stub.review{ border:1.5px solid var(--rust); }
   .stub.review .flag{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--rust); text-transform:uppercase; letter-spacing:.05em; margin-top:6px; }
