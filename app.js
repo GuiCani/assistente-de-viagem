@@ -131,6 +131,21 @@ async function endTrip(tripId){
   await generateZip(tripId);
 }
 
+async function reopenTrip(tripId){
+  const trip = trips.find(t => t.id === tripId);
+  if(!trip) return;
+  if(getActiveTrip()){
+    alert('Encerre a viagem atual antes de reabrir esta.');
+    return;
+  }
+  const confirmado = confirm(`Reabrir a viagem "${trip.label}"? Ela volta a ser a viagem ativa.`);
+  if(!confirmado) return;
+  trip.status = 'ativa';
+  trip.endDate = null;
+  await saveTrips();
+  render();
+}
+
 async function deleteTrip(tripId){
   const trip = trips.find(t => t.id === tripId);
   if(!trip) return;
@@ -608,6 +623,7 @@ function renderHistory(){
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost" onclick="generateZip('${t.id}')">Baixar ZIP</button>
+        <button class="btn btn-ghost" onclick="reopenTrip('${t.id}')">Reabrir viagem</button>
         <button class="btn btn-danger" onclick="deleteTrip('${t.id}')">Remover</button>
       </div>
     </div>`;
