@@ -268,16 +268,32 @@ function compressImage(file, maxWidth, quality){
   });
 }
 
+function readFileAsBase64(file){
+  return new Promise((resolve, reject) => {
+    const maxBytes = 15 * 1024 * 1024;
+    if(file.size > maxBytes){
+      reject(new Error('Arquivo maior que 15MB.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo do disco'));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function handleFile(file){
   if(!file) return;
   const activeTrip = getActiveTrip();
   const id = uid();
-  expenses.unshift({ id, status:'processing', tripId: activeTrip ? activeTrip.id : null });
+  const isPdf = file.type === 'application/pdf';
+  const mediaType = isPdf ? 'application/pdf' : 'image/jpeg';
+  expenses.unshift({ id, status:'processing', tripId: activeTrip ? activeTrip.id : null, mediaType });
   render();
 
   let base64;
-  try{ base64 = await compressImage(file, 1000, 0.65); }
-  catch(e){ setResult(id, {status:'error', errorMessage: 'Falha ao processar a imagem: ' + (e && e.message ? e.message : 'erro desconhecido')}); return; }
+  try{ base64 = isPdf ? await readFileAsBase64(file) : await compressImage(file, 1000, 0.65); }
+  catch(e){ setResult(id, {status:'error', errorMessage: 'Falha ao processar o arquivo: ' + (e && e.message ? e.message : 'erro desconhecido')}); return; }
 
   try{ await window.storage.set('despesas-img:'+id, base64, false); }catch(e){ }
   imageCache[id] = base64;
@@ -287,7 +303,7 @@ async function handleFile(file){
     response = await fetch(BACKEND_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ imageBase64: base64, mediaType: 'image/jpeg' })
+      body: JSON.stringify({ imageBase64: base64, mediaType })
     });
     data = await response.json();
   }catch(err){
@@ -322,7 +338,7 @@ async function handleFile(file){
 function setResult(id, fields){
   const idx = expenses.findIndex(e => e.id === id);
   if(idx === -1) return;
-  expenses[idx] = { id, tripId: expenses[idx].tripId, categoria:'outros', data:'', valor:0, estabelecimento:'', ...fields };
+  expenses[idx] = { categoria:'outros', data:'', valor:0, estabelecimento:'', ...expenses[idx], ...fields };
   saveExpenses();
   render();
 }
@@ -378,7 +394,8 @@ async function generateZip(tripId){
       try{ const r = await window.storage.get('despesas-img:'+e.id, false); img = r ? r.value : null; }catch(err){ img = null; }
     }
     if(img){
-      const filename = `${e.data||'sem-data'}_${(e.valor||0).toFixed(2)}_${i+1}.jpg`;
+      const ext = e.mediaType === 'application/pdf' ? 'pdf' : 'jpg';
+      const filename = `${e.data||'sem-data'}_${(e.valor||0).toFixed(2)}_${i+1}.${ext}`;
       folders[e.categoria].file(filename, img, {base64:true});
     }
   }
@@ -588,7 +605,11 @@ function renderList(){
         <span>${formatDate(e.data)}</span>
       </div>
       ${e.status === 'review' ? '<div class="flag">Confira os dados — leitura incompleta</div>' : ''}
-      ${viewingImageId === e.id && imageCache[e.id] ? `<img class="stub-img" src="data:image/jpeg;base64,${imageCache[e.id]}">` : ''}
+      ${viewingImageId === e.id && imageCache[e.id] ? (
+        e.mediaType === 'application/pdf'
+          ? `<a class="stub-pdf-link" href="data:application/pdf;base64,${imageCache[e.id]}" target="_blank" rel="noopener">📄 Abrir PDF</a>`
+          : `<img class="stub-img" src="data:image/jpeg;base64,${imageCache[e.id]}">`
+      ) : ''}
       <div class="stub-actions">
         <button onclick="toggleImage('${e.id}')">${viewingImageId === e.id ? 'Ocultar cupom' : 'Ver cupom'}</button>
         <button onclick="startEdit('${e.id}')">Editar</button>
