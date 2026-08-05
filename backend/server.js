@@ -23,6 +23,13 @@ function extForMediaType(mediaType) {
   return mediaType === 'application/pdf' ? 'pdf' : 'jpg';
 }
 
+// clientId/expenseId viram nome de pasta/arquivo direto — sem essa checagem,
+// um valor tipo "../../../../home/admin/.ssh" escaparia de FILES_DIR (path traversal).
+const SAFE_ID_RE = /^[a-zA-Z0-9-]+$/;
+function isSafeId(id) {
+  return typeof id === 'string' && SAFE_ID_RE.test(id);
+}
+
 function findClientFile(clientId, expenseId) {
   const clientDir = path.join(FILES_DIR, clientId);
   let files;
@@ -114,6 +121,9 @@ app.post('/arquivo', (req, res) => {
   if (!clientId || !expenseId || !base64) {
     return res.status(400).json({ error: 'Campos clientId, expenseId e base64 são obrigatórios.' });
   }
+  if (!isSafeId(clientId) || !isSafeId(expenseId)) {
+    return res.status(400).json({ error: 'clientId e expenseId só podem conter letras, números e hífen.' });
+  }
   const ext = extForMediaType(mediaType);
   const clientDir = path.join(FILES_DIR, clientId);
   fs.mkdirSync(clientDir, { recursive: true });
@@ -122,7 +132,11 @@ app.post('/arquivo', (req, res) => {
 });
 
 app.get('/arquivo/:clientId/:expenseId', (req, res) => {
-  const filePath = findClientFile(req.params.clientId, req.params.expenseId);
+  const { clientId, expenseId } = req.params;
+  if (!isSafeId(clientId) || !isSafeId(expenseId)) {
+    return res.status(400).json({ error: 'clientId e expenseId só podem conter letras, números e hífen.' });
+  }
+  const filePath = findClientFile(clientId, expenseId);
   if (!filePath) {
     return res.status(404).json({ error: 'Arquivo não encontrado.' });
   }
@@ -131,7 +145,11 @@ app.get('/arquivo/:clientId/:expenseId', (req, res) => {
 });
 
 app.delete('/arquivo/:clientId/:expenseId', (req, res) => {
-  const filePath = findClientFile(req.params.clientId, req.params.expenseId);
+  const { clientId, expenseId } = req.params;
+  if (!isSafeId(clientId) || !isSafeId(expenseId)) {
+    return res.status(400).json({ error: 'clientId e expenseId só podem conter letras, números e hífen.' });
+  }
+  const filePath = findClientFile(clientId, expenseId);
   if (filePath) {
     try { fs.unlinkSync(filePath); } catch (e) { /* já removido, tudo bem */ }
   }
