@@ -461,7 +461,7 @@ async function generateZip(tripId){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${sanitizeFilename(trip.label)}-notas.zip`;
+  a.download = `${sanitizeFilename(trip.label)}-${trip.startDate}-notas.zip`;
   document.body.appendChild(a);
   a.click();
   a.remove();
