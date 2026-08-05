@@ -31,6 +31,19 @@ if (!window.storage) {
 // Servidor próprio (Raspberry Pi + Tailscale Funnel) que lê o cupom
 // chamando o Gemini com a chave escondida no servidor.
 const BACKEND_URL = 'https://homeserver.tail3aab9b.ts.net/analisar-cupom';
+const BACKEND_BASE = BACKEND_URL.replace(/\/analisar-cupom$/, '');
+
+// Identificador técnico do aparelho, sem login — usado só para organizar
+// os arquivos de cupom por pasta no servidor.
+function getClientId(){
+  let id = localStorage.getItem('assistente-viagem-client-id');
+  if(!id){
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+    localStorage.setItem('assistente-viagem-client-id', id);
+  }
+  return id;
+}
+const CLIENT_ID = getClientId();
 
 const CATS = {
   combustivel: { label:'Combustível', icon:'⛽', color:'#B3452F' },
@@ -154,6 +167,9 @@ async function deleteTrip(tripId){
 
   const expensesDaViagem = expenses.filter(e => e.tripId === tripId);
   for(const e of expensesDaViagem){
+    if(e.serverStored){
+      try{ await fetch(`${BACKEND_BASE}/arquivo/${CLIENT_ID}/${e.id}`, { method:'DELETE' }); }catch(err){}
+    }
     try{ await window.storage.delete('despesas-img:'+e.id, false); }catch(err){}
   }
   expenses = expenses.filter(e => e.tripId !== tripId);
@@ -295,8 +311,21 @@ async function handleFile(file){
   try{ base64 = isPdf ? await readFileAsBase64(file) : await compressImage(file, 1000, 0.65); }
   catch(e){ setResult(id, {status:'error', errorMessage: 'Falha ao processar o arquivo: ' + (e && e.message ? e.message : 'erro desconhecido')}); return; }
 
-  try{ await window.storage.set('despesas-img:'+id, base64, false); }catch(e){ }
   imageCache[id] = base64;
+
+  const avisoUpload = 'Cupom lido, mas não foi possível salvar o arquivo no servidor — tente novamente ou baixe o ZIP logo.';
+  try{
+    const uploadResp = await fetch(`${BACKEND_BASE}/arquivo`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ clientId: CLIENT_ID, expenseId: id, base64, mediaType })
+    });
+    const uploadData = await uploadResp.json().catch(() => ({}));
+    if(uploadResp.ok && uploadData.ok){ setResult(id, { serverStored: true }); }
+    else{ setResult(id, { avisoArmazenamento: avisoUpload }); }
+  }catch(err){
+    setResult(id, { avisoArmazenamento: avisoUpload });
+  }
 
   let response, data;
   try{
@@ -344,8 +373,12 @@ function setResult(id, fields){
 }
 
 async function deleteExpense(id){
+  const expense = expenses.find(e => e.id === id);
   expenses = expenses.filter(e => e.id !== id);
   await saveExpenses();
+  if(expense && expense.serverStored){
+    try{ await fetch(`${BACKEND_BASE}/arquivo/${CLIENT_ID}/${id}`, { method:'DELETE' }); }catch(e){}
+  }
   try{ await window.storage.delete('despesas-img:'+id, false); }catch(e){}
   delete imageCache[id];
   render();
@@ -374,6 +407,19 @@ async function toggleImage(id){
   render();
 }
 
+function cupomViewHtml(e){
+  if(e.serverStored){
+    const url = `${BACKEND_BASE}/arquivo/${CLIENT_ID}/${e.id}`;
+    return e.mediaType === 'application/pdf'
+      ? `<a class="stub-pdf-link" href="${url}" target="_blank" rel="noopener">📄 Abrir PDF</a>`
+      : `<img class="stub-img" src="${url}">`;
+  }
+  if(!imageCache[e.id]) return '';
+  return e.mediaType === 'application/pdf'
+    ? `<a class="stub-pdf-link" href="data:application/pdf;base64,${imageCache[e.id]}" target="_blank" rel="noopener">📄 Abrir PDF</a>`
+    : `<img class="stub-img" src="data:image/jpeg;base64,${imageCache[e.id]}">`;
+}
+
 function sanitizeFilename(s){ return (s||'viagem').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9-_ ]/g,'').trim().replace(/\s+/g,'-'); }
 
 async function generateZip(tripId){
@@ -389,14 +435,24 @@ async function generateZip(tripId){
   for(let i=0; i<tripExpenses.length; i++){
     const e = tripExpenses[i];
     csvRows.push(`${e.data||''},${CATS[e.categoria].label},"${(e.estabelecimento||'').replace(/"/g,'')}",${(e.valor||0).toFixed(2)}`);
-    let img = imageCache[e.id];
-    if(!img){
-      try{ const r = await window.storage.get('despesas-img:'+e.id, false); img = r ? r.value : null; }catch(err){ img = null; }
-    }
-    if(img){
-      const ext = e.mediaType === 'application/pdf' ? 'pdf' : 'jpg';
-      const filename = `${e.data||'sem-data'}_${(e.valor||0).toFixed(2)}_${i+1}.${ext}`;
-      folders[e.categoria].file(filename, img, {base64:true});
+    const ext = e.mediaType === 'application/pdf' ? 'pdf' : 'jpg';
+    const filename = `${e.data||'sem-data'}_${(e.valor||0).toFixed(2)}_${i+1}.${ext}`;
+    if(e.serverStored){
+      try{
+        const resp = await fetch(`${BACKEND_BASE}/arquivo/${CLIENT_ID}/${e.id}`);
+        if(resp.ok){
+          const buffer = await resp.arrayBuffer();
+          folders[e.categoria].file(filename, buffer);
+        }
+      }catch(err){ /* arquivo indisponível no momento, segue sem ele no zip */ }
+    }else{
+      let img = imageCache[e.id];
+      if(!img){
+        try{ const r = await window.storage.get('despesas-img:'+e.id, false); img = r ? r.value : null; }catch(err){ img = null; }
+      }
+      if(img){
+        folders[e.categoria].file(filename, img, {base64:true});
+      }
     }
   }
   zip.file('resumo.csv', csvRows.join('\n'));
@@ -605,11 +661,8 @@ function renderList(){
         <span>${formatDate(e.data)}</span>
       </div>
       ${e.status === 'review' ? '<div class="flag">Confira os dados — leitura incompleta</div>' : ''}
-      ${viewingImageId === e.id && imageCache[e.id] ? (
-        e.mediaType === 'application/pdf'
-          ? `<a class="stub-pdf-link" href="data:application/pdf;base64,${imageCache[e.id]}" target="_blank" rel="noopener">📄 Abrir PDF</a>`
-          : `<img class="stub-img" src="data:image/jpeg;base64,${imageCache[e.id]}">`
-      ) : ''}
+      ${e.avisoArmazenamento ? `<div class="flag">${e.avisoArmazenamento}</div>` : ''}
+      ${viewingImageId === e.id ? cupomViewHtml(e) : ''}
       <div class="stub-actions">
         <button onclick="toggleImage('${e.id}')">${viewingImageId === e.id ? 'Ocultar cupom' : 'Ver cupom'}</button>
         <button onclick="startEdit('${e.id}')">Editar</button>

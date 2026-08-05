@@ -1,16 +1,35 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 
 // CORS: por enquanto libera geral. Depois que o app estiver publicado
 // num endereço fixo, o ideal é restringir aqui só para esse domínio.
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // fotos em base64 podem ser grandes
+app.use(express.json({ limit: '25mb' })); // fotos/PDFs em base64 podem ser grandes
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-flash-latest';
+
+// Pasta onde ficam os arquivos (fotos/PDFs) dos cupons, organizados por clientId.
+// Aponte FILES_DIR pro HD externo em produção (ex: /mnt/hd/assistente-viagem-arquivos).
+const FILES_DIR = path.resolve(process.env.FILES_DIR || path.join(__dirname, 'uploads'));
+fs.mkdirSync(FILES_DIR, { recursive: true });
+
+function extForMediaType(mediaType) {
+  return mediaType === 'application/pdf' ? 'pdf' : 'jpg';
+}
+
+function findClientFile(clientId, expenseId) {
+  const clientDir = path.join(FILES_DIR, clientId);
+  let files;
+  try { files = fs.readdirSync(clientDir); } catch (e) { return null; }
+  const match = files.find(f => f.startsWith(expenseId + '.'));
+  return match ? path.join(clientDir, match) : null;
+}
 
 if (!GEMINI_API_KEY) {
   console.error('ERRO: variável de ambiente GEMINI_API_KEY não definida. Crie um arquivo .env (veja .env.example).');
@@ -85,6 +104,38 @@ app.post('/analisar-cupom', async (req, res) => {
     console.error('Erro interno:', err);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
+});
+
+// Arquivos dos cupons (fotos/PDFs), guardados no disco do servidor por clientId.
+// clientId é só um identificador técnico gerado no aparelho (sem login/senha),
+// usado para organizar as pastas — o servidor não valida quem é o dono.
+app.post('/arquivo', (req, res) => {
+  const { clientId, expenseId, base64, mediaType } = req.body;
+  if (!clientId || !expenseId || !base64) {
+    return res.status(400).json({ error: 'Campos clientId, expenseId e base64 são obrigatórios.' });
+  }
+  const ext = extForMediaType(mediaType);
+  const clientDir = path.join(FILES_DIR, clientId);
+  fs.mkdirSync(clientDir, { recursive: true });
+  fs.writeFileSync(path.join(clientDir, `${expenseId}.${ext}`), Buffer.from(base64, 'base64'));
+  res.json({ ok: true });
+});
+
+app.get('/arquivo/:clientId/:expenseId', (req, res) => {
+  const filePath = findClientFile(req.params.clientId, req.params.expenseId);
+  if (!filePath) {
+    return res.status(404).json({ error: 'Arquivo não encontrado.' });
+  }
+  res.type(filePath.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+  res.sendFile(filePath);
+});
+
+app.delete('/arquivo/:clientId/:expenseId', (req, res) => {
+  const filePath = findClientFile(req.params.clientId, req.params.expenseId);
+  if (filePath) {
+    try { fs.unlinkSync(filePath); } catch (e) { /* já removido, tudo bem */ }
+  }
+  res.json({ ok: true });
 });
 
 app.get('/saude', (req, res) => res.json({ status: 'ok' }));
