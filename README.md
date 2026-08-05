@@ -61,16 +61,16 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
 ## Próximos passos
 
 - **Fase 5** (planejado, não iniciado): criar uma página separada para o histórico de viagens. Ideia: a página principal passa a mostrar só a última viagem encerrada (resumo rápido), e o histórico completo (todas as viagens antigas, com os botões de baixar ZIP de novo) muda para uma página própria, acessada por um link/menu.
-- **Fase 6 (parcial ✅ feito, resto planejado)**: mover o armazenamento de `localStorage` para o servidor.
+- **Fase 6 (parcial ✅ feito, resto será concluído junto com a Fase 7, Etapa 2)**: mover o armazenamento de `localStorage` para o servidor.
   - ✅ **Feito**: as imagens/PDFs dos cupons já ficam salvas no HD externo do Raspberry Pi (`FILES_DIR`), organizadas por um identificador único gerado automaticamente no aparelho (sem login) — resolve o problema de estourar o espaço do navegador com arquivos grandes.
-  - **Ainda pendente**: categoria/data/valor das despesas e viagens continuam só no `localStorage` — ou seja, ainda dá pra perder o *histórico* (não mais as imagens) se limpar dados do navegador ou trocar de aparelho.
-  - **Migração**: cupons salvos antes dessa mudança continuam funcionando do jeito antigo (fallback local) — não foram migrados automaticamente pro servidor.
+  - **Ainda pendente**: categoria/data/valor das despesas e viagens continuam só no `localStorage` — resolvido na Fase 7, Etapa 2 (ver abaixo).
   - Isso também reduz (mas não elimina) a necessidade das ideias de "botão de limpar cache" discutidas antes.
-- **Fase 7** (planejado, não iniciado): criar processo de cadastro e login na aplicação. Isso substitui a identificação sem login (o identificador automático por aparelho usado hoje) — o usuário passa a ter uma conta de verdade, o que facilita acessar os mesmos dados de aparelhos diferentes. Pontos a decidir antes de implementar:
-  - **Cadastro**: nome/e-mail/senha próprios, ou login via provedor externo (Google, por exemplo) para não precisar guardar senha.
-  - **Segurança**: se for senha própria, exige hash/salt (nunca texto puro) e um fluxo de recuperação de senha (esqueci minha senha).
-  - **Sessão**: como manter o usuário logado entre visitas (token/cookie), e por quanto tempo.
-  - **Dependência da Fase 6**: pra login valer a pena de verdade, o restante dos dados (categoria/data/valor) também precisaria morar no servidor, não só as imagens.
+- **Fase 7 (planejado, não iniciado — arquitetura definida)**: cadastro e login via **Google** (não senha própria — evita ter que implementar hash/salt e fluxo de recuperação de senha; o Google cuida disso). Login passa a ser **obrigatório** para usar o app dali em diante. Dividido em duas etapas, cada uma um PR separado:
+  - **Etapa 1 — login + sessão**: o frontend usa a biblioteca oficial do Google ("Entrar com Google") pra obter um token de identidade, direto no navegador (sem redirecionar entre domínios, o que evitaria complicação já que o frontend mora no GitHub Pages e o backend no Raspberry Pi). O backend confirma esse token com o Google, cria/reconhece o usuário num arquivo `usuarios.json` no HD, e devolve uma sessão própria do app (um token assinado — tipo um "crachá" — guardado no aparelho e enviado em toda requisição dali pra frente). As rotas de arquivo (`/arquivo`) passam a exigir essa sessão em vez do `clientId` anônimo de hoje, o que também fecha por completo qualquer risco parecido com o path traversal corrigido antes. A pasta anônima que já existe no HD (identificada pelo `clientId` do aparelho) é associada à conta no primeiro login, sem perder as fotos já salvas.
+  - **Etapa 2 — viagens/despesas no servidor**: duas rotas novas (`GET /dados` e `PUT /dados`) guardam viagens e despesas num arquivo JSON por conta no HD (mesmo estilo simples já usado pras imagens — sem banco de dados novo no Pi). O app mantém uma cópia local pra funcionar rápido e mesmo se o Pi cair por um instante, sincronizando a cada mudança. No primeiro login, se já existirem viagens salvas localmente (de antes do login existir), o app oferece migrar esses dados pra conta.
+  - **Limitações conscientes, não escondidas**: se o mesmo usuário mexer no app em dois aparelhos sem sincronizar entre eles, quem salvar por último sobrescreve o outro (sem fusão inteligente) — aceitável no tamanho atual do projeto. E como a sessão é auto-verificável (não exige consultar o servidor a cada requisição), ela continua válida até expirar sozinha (planejado: 90 dias) mesmo depois de "sair" no aparelho — sair só apaga a sessão localmente, não a invalida no servidor antes da hora.
+  - Armazenamento de dados em arquivos JSON simples (mesmo estilo das imagens), sem instalar banco de dados no Pi — decisão consciente pelo tamanho do projeto (poucos usuários).
+
 
 ## Versão 2.0 (planejado, não iniciado — categorias alinhadas ao portal de reembolso da empresa)
 
