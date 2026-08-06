@@ -48,7 +48,10 @@ const CLIENT_ID = getClientId();
 const CATS = {
   combustivel: { label:'Combustível', icon:'⛽', color:'#B3452F' },
   alimentacao: { label:'Alimentação', icon:'🍽', color:'#2F5D50' },
-  outros:      { label:'Outros',      icon:'🧾', color:'#5B6259' },
+  pedagio:     { label:'Pedágio', icon:'🎫', color:'#7A5900' },
+  almoco_negocio: { label:'Almoço Negócio', icon:'💰', color:'#7C5522' },
+  transporte:  { label:'Transporte', icon:'🚕', color:'#365E8F' },
+  outros:      { label:'Outros', icon:'🧾', color:'#5B6259' },
 };
 
 let expenses = [];
@@ -351,7 +354,7 @@ async function handleFile(file){
     let jsonText = data.text || '{}';
     jsonText = jsonText.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(jsonText);
-    const categoria = ['combustivel','alimentacao','outros'].includes(parsed.categoria) ? parsed.categoria : 'outros';
+    const categoria = ['combustivel','alimentacao','pedagio','transporte','outros'].includes(parsed.categoria) ? parsed.categoria : 'outros';
     const valor = parseFloat(parsed.valor);
     const completo = !isNaN(valor) && !!parsed.data;
     setResult(id, {
@@ -429,7 +432,14 @@ async function generateZip(tripId){
   if(tripExpenses.length === 0){ alert('Nenhuma despesa registrada nesta viagem para exportar.'); return; }
 
   const zip = new JSZip();
-  const folders = { combustivel: zip.folder('Combustivel'), alimentacao: zip.folder('Alimentacao'), outros: zip.folder('Outros') };
+  const folders = {
+    combustivel: zip.folder('Combustivel'),
+    alimentacao: zip.folder('Alimentacao'),
+    pedagio: zip.folder('Pedagio'),
+    almoco_negocio: zip.folder('AlmocoNegocio'),
+    transporte: zip.folder('Transporte'),
+    outros: zip.folder('Outros')
+  };
   const csvRows = ['Data,Categoria,Estabelecimento,Valor'];
 
   for(let i=0; i<tripExpenses.length; i++){

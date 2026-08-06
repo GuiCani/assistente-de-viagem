@@ -47,9 +47,11 @@ const PROMPT = `Você está analisando uma foto de cupom fiscal / recibo de uma 
 {"categoria": "combustivel", "data": "YYYY-MM-DD", "valor": 0.00, "estabelecimento": "nome ou null"}
 
 Regras:
-- categoria "combustivel": postos de gasolina, etanol, diesel.
+- categoria "combustivel": postos de gasolina, etanol, diesel, quilometragem rodada.
 - categoria "alimentacao": restaurantes, lanchonetes, padarias, mercado para refeição.
-- categoria "outros": pedágio, estacionamento, hospedagem, manutenção de veículo, ou qualquer outra despesa.
+- categoria "pedagio": pedágios de rodovia.
+- categoria "transporte": aplicativos de transporte (Uber, 99), táxi.
+- categoria "outros": estacionamento, hospedagem, manutenção de veículo, ou qualquer outra despesa.
 - "data": data da compra no formato YYYY-MM-DD. Se não conseguir ler, use null.
 - "valor": valor TOTAL do cupom, número com ponto decimal (nunca vírgula).
 - Se não conseguir ler o cupom com confiança, use "categoria":"outros" e os demais campos null.`;

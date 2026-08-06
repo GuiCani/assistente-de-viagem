@@ -7,6 +7,9 @@
     --amber:#E8A73D;
     --highway:#2F5D50;
     --rust:#B3452F;
+    --mustard:#7A5900;
+    --copper:#7C5522;
+    --sky:#365E8F;
     --ink:#23282B;
     --ink-soft:#5B6259;
   }
@@ -97,6 +100,9 @@
   .stamp{ font-family:'Oswald', sans-serif; font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; padding:3px 8px; border-radius:3px; border:1.5px solid currentColor; transform:rotate(-4deg); display:inline-block; }
   .stamp.combustivel{ color:var(--rust); }
   .stamp.alimentacao{ color:var(--highway); }
+  .stamp.pedagio{ color:var(--mustard); }
+  .stamp.almoco_negocio{ color:var(--copper); }
+  .stamp.transporte{ color:var(--sky); }
   .stamp.outros{ color:var(--ink-soft); }
   .stub .valor{ font-family:'IBM Plex Mono', monospace; font-weight:600; font-size:18px; }
   .stub .meta{ margin-top:8px; display:flex; justify-content:space-between; align-items:center; font-size:12.5px; color:var(--ink-soft); }
