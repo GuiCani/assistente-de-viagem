@@ -107,6 +107,10 @@
   .stub .valor{ font-family:'IBM Plex Mono', monospace; font-weight:600; font-size:18px; }
   .stub .meta{ margin-top:8px; display:flex; justify-content:space-between; align-items:center; font-size:12.5px; color:var(--ink-soft); }
   .stub .meta .estab{ font-weight:500; color:var(--ink); }
+  .cat-toggle{ display:inline-flex; border:1px solid #C9C2AE; border-radius:20px; overflow:hidden; margin:8px 0; }
+  .cat-toggle button{ border:none; background:transparent; font-size:16px; padding:5px 14px; cursor:pointer; color:var(--ink-soft); transition:.15s; line-height:1; }
+  .cat-toggle button.active-alimentacao{ background:var(--highway); color:#fff; }
+  .cat-toggle button.active-almoco{ background:var(--copper); color:#fff; }
   .stub-actions{ display:flex; gap:12px; margin-top:8px; flex-wrap:wrap; }
   .stub-actions button{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.04em; text-transform:uppercase; background:none; border:none; color:var(--ink-soft); cursor:pointer; padding:0; text-decoration:underline; }
   .stub-actions button:hover{ color:var(--rust); }
