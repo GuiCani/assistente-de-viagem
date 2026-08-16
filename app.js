@@ -223,6 +223,13 @@ async function deleteExpense(id){
   render();
 }
 
+function toggleAlmocoNegocio(id){
+  const e = expenses.find(x => x.id === id);
+  if(!e) return;
+  const novaCategoria = e.categoria === 'alimentacao' ? 'almoco_negocio' : 'alimentacao';
+  setResult(id, { categoria: novaCategoria });
+}
+
 function startEdit(id){ editingId = id; render(); }
 function cancelEdit(){ editingId = null; render(); }
 function saveEdit(id){
@@ -452,6 +459,12 @@ function renderList(){
       </div>
       ${e.status === 'review' ? '<div class="flag">Confira os dados — leitura incompleta</div>' : ''}
       ${e.avisoArmazenamento ? `<div class="flag">${e.avisoArmazenamento}</div>` : ''}
+      ${(e.categoria === 'alimentacao' || e.categoria === 'almoco_negocio') ? `
+        <div class="cat-toggle">
+          <button class="${e.categoria === 'alimentacao' ? 'active-alimentacao' : ''}" onclick="toggleAlmocoNegocio('${e.id}')" title="Alimentação">🍽</button>
+          <button class="${e.categoria === 'almoco_negocio' ? 'active-almoco' : ''}" onclick="toggleAlmocoNegocio('${e.id}')" title="Almoço Negócio">💰</button>
+        </div>
+      ` : ''}
       ${viewingImageId === e.id ? cupomViewHtml(e) : ''}
       <div class="stub-actions">
         <button onclick="toggleImage('${e.id}')">${viewingImageId === e.id ? 'Ocultar cupom' : 'Ver cupom'}</button>
