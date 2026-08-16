@@ -2,7 +2,8 @@
 // Estado e utilitários compartilhados com index.html estão em shared.js.
 
 function tripCategorySums(tripId){
-  const sums = {combustivel:0, alimentacao:0, outros:0};
+  const sums = {};
+  Object.keys(CATS).forEach(k => sums[k] = 0);
   expenses.forEach(e => {
     if(e.tripId === tripId && (e.status === 'ok' || e.status === 'review')){
       sums[e.categoria] = (sums[e.categoria]||0) + (e.valor||0);
@@ -16,13 +17,12 @@ function renderHistory(){
   const el = document.getElementById('history-section');
   if(closed.length === 0){ el.innerHTML = `<div class="empty">Nenhuma viagem encerrada ainda.</div>`; return; }
   el.innerHTML = closed.map(t => {
-    const stats = tripFoodStats(t);
     const catSums = tripCategorySums(t.id);
     return `<div class="history-item">
       <div class="info">
         <div class="name">${t.label}</div>
         <div class="sub">${t.region} &middot; ${formatDate(t.startDate)} a ${formatDate(t.endDate)}</div>
-        <div class="sub">${CATS.combustivel.icon} ${fmtBRL(catSums.combustivel)} &middot; ${CATS.alimentacao.icon} ${fmtBRL(stats.totalSpent)} &middot; ${CATS.outros.icon} ${fmtBRL(catSums.outros)}</div>
+        <div class="sub">${Object.keys(CATS).map(k => `${CATS[k].icon} ${fmtBRL(catSums[k])}`).join(' &middot; ')}</div>
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost" onclick="generateZip('${t.id}')">Baixar ZIP</button>
