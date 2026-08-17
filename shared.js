@@ -37,8 +37,10 @@ if (!window.storage) {
 const BACKEND_URL = 'https://homeserver.tail3aab9b.ts.net/analisar-cupom';
 const BACKEND_BASE = BACKEND_URL.replace(/\/analisar-cupom$/, '');
 
-// Identificador técnico do aparelho, sem login — usado só para organizar
-// os arquivos de cupom por pasta no servidor.
+// Identificador técnico do aparelho, usado antes do login (Etapa 1) pra
+// organizar os arquivos de cupom por pasta no servidor. Depois do login,
+// só serve como referência pra migrar essa pasta anônima pra conta de
+// verdade (ver login.js) — as chamadas de /arquivo passam a usar a sessão.
 function getClientId(){
   let id = localStorage.getItem('assistente-viagem-client-id');
   if(!id){
@@ -48,6 +50,50 @@ function getClientId(){
   return id;
 }
 const CLIENT_ID = getClientId();
+
+// --- Sessão (login com Google) ---
+
+const SESSION_KEY = 'assistente-viagem-session';
+
+function getSession(){
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveSession(session){ localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }
+function clearSession(){ localStorage.removeItem(SESSION_KEY); }
+
+// Chame no topo de páginas que exigem login. Sem sessão salva, já
+// redireciona pro login e retorna null (quem chamou deve parar ali).
+function requireSession(){
+  const session = getSession();
+  if(!session || !session.token){
+    window.location.href = 'login.html';
+    return null;
+  }
+  return session;
+}
+
+function logout(){
+  clearSession();
+  window.location.href = 'login.html';
+}
+
+// fetch com o header de sessão já incluído. Em 401 (sessão expirada/
+// inválida), limpa a sessão local e manda pro login.
+async function authFetch(url, options){
+  const session = getSession();
+  const headers = Object.assign({}, options && options.headers, {
+    Authorization: 'Bearer ' + (session ? session.token : '')
+  });
+  const resp = await fetch(url, Object.assign({}, options, { headers }));
+  if(resp.status === 401){
+    clearSession();
+    window.location.href = 'login.html';
+  }
+  return resp;
+}
 
 const CATS = {
   combustivel: { label:'Combustível', icon:'⛽', color:'#B3452F' },
@@ -159,7 +205,7 @@ async function generateZip(tripId){
     const filename = `${e.data||'sem-data'}_${(e.valor||0).toFixed(2)}_${i+1}.${ext}`;
     if(e.serverStored){
       try{
-        const resp = await fetch(`${BACKEND_BASE}/arquivo/${CLIENT_ID}/${e.id}`);
+        const resp = await authFetch(`${BACKEND_BASE}/arquivo/${e.id}`);
         if(resp.ok){
           const buffer = await resp.arrayBuffer();
           folders[e.categoria].file(filename, buffer);

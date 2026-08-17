@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Histórico — Assistente de Viagem</title>
+<title>Bem-vindo — Assistente de Viagem</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,8 +20,8 @@
       background_color: "#22262B",
       theme_color: "#22262B",
       icons: [
-        { src: window.location.href.replace(/historico\.html$/, "") + "icons/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: window.location.href.replace(/historico\.html$/, "") + "icons/icon-512.png", sizes: "512x512", type: "image/png" }
+        { src: window.location.href.replace(/cadastro\.html$/, "") + "icons/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: window.location.href.replace(/cadastro\.html$/, "") + "icons/icon-512.png", sizes: "512x512", type: "image/png" }
       ]
     };
     var blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
@@ -39,27 +39,32 @@
 <link rel="icon" href="icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="wrap">
-  <nav class="main-nav">
-    <a href="index.html">Viagem atual</a>
-    <a href="historico.html" class="active">Histórico</a>
-    <a href="#" onclick="logout(); return false;">Sair</a>
-  </nav>
-
   <header>
     <span class="eyebrow">Diário de despesas &middot; viagens a trabalho</span>
-    <h1>Histórico</h1>
-    <p>Viagens encerradas — baixe o ZIP, reabra ou remova.</p>
+    <h1>Bem-vindo!</h1>
+    <p>Só mais um passo antes de começar.</p>
   </header>
 
-  <div id="history-section"></div>
+  <div class="panel">
+    <h3>Seu nome</h3>
+    <input id="nome-input" type="text" placeholder="Seu nome" style="width:100%; padding:8px 9px; border-radius:4px; border:1px solid #4A5058; background:#181B1F; color:var(--paper); font-size:13px;">
+
+    <div id="migrar-area" style="margin-top:18px; display:none;">
+      <p class="hint">Encontramos viagens salvas neste aparelho, de antes do login.</p>
+      <button id="migrar-btn" class="btn btn-ghost" onclick="migrarDados()">Migrar meus dados existentes pra essa conta</button>
+    </div>
+
+    <div style="margin-top:22px;">
+      <button class="btn btn-primary" onclick="continuar()">Continuar</button>
+    </div>
+  </div>
 </div>
 
 <script src="shared.js"></script>
-<script src="historico.js"></script>
+<script src="cadastro.js"></script>
 </body>
 </html>

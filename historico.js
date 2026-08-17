@@ -1,6 +1,8 @@
 // historico.js — lógica específica da página de viagens encerradas.
 // Estado e utilitários compartilhados com index.html estão em shared.js.
 
+const session = requireSession(); // sem sessão, já redireciona pro login.html
+
 function tripCategorySums(tripId){
   const sums = {};
   Object.keys(CATS).forEach(k => sums[k] = 0);
@@ -57,7 +59,7 @@ async function deleteTrip(tripId){
   const expensesDaViagem = expenses.filter(e => e.tripId === tripId);
   for(const e of expensesDaViagem){
     if(e.serverStored){
-      try{ await fetch(`${BACKEND_BASE}/arquivo/${CLIENT_ID}/${e.id}`, { method:'DELETE' }); }catch(err){}
+      try{ await authFetch(`${BACKEND_BASE}/arquivo/${e.id}`, { method:'DELETE' }); }catch(err){}
     }
     try{ await window.storage.delete('despesas-img:'+e.id, false); }catch(err){}
   }
@@ -69,4 +71,6 @@ async function deleteTrip(tripId){
   renderHistory();
 }
 
-loadAll().then(renderHistory);
+if(session){
+  loadAll().then(renderHistory);
+}

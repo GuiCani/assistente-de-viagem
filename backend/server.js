@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 
 const app = express();
 
@@ -13,8 +15,10 @@ app.use(express.json({ limit: '25mb' })); // fotos/PDFs em base64 podem ser gran
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-flash-latest';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const SESSION_SECRET = process.env.SESSION_SECRET;
 
-// Pasta onde ficam os arquivos (fotos/PDFs) dos cupons, organizados por clientId.
+// Pasta onde ficam os arquivos (fotos/PDFs) dos cupons, organizados por userId.
 // Aponte FILES_DIR pro HD externo em produção (ex: /mnt/hd/assistente-viagem-arquivos).
 const FILES_DIR = path.resolve(process.env.FILES_DIR || path.join(__dirname, 'uploads'));
 fs.mkdirSync(FILES_DIR, { recursive: true });
@@ -43,6 +47,89 @@ if (!GEMINI_API_KEY) {
   process.exit(1);
 }
 
+if (!GOOGLE_CLIENT_ID || !SESSION_SECRET) {
+  console.error('ERRO: variáveis de ambiente GOOGLE_CLIENT_ID e/ou SESSION_SECRET não definidas. Crie um arquivo .env (veja .env.example).');
+  process.exit(1);
+}
+
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+
+// --- Login (Google) e sessão ---
+
+const USERS_FILE = path.join(FILES_DIR, 'usuarios.json');
+function readUsuarios() {
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch (e) { return {}; }
+}
+function writeUsuarios(usuarios) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(usuarios, null, 2));
+}
+
+// Move os arquivos do clientId anônimo (pré-login) pra pasta do usuário logado.
+// Se a pasta do usuário já existir, mescla sem sobrescrever nada.
+function migrarPastaAnonima(clientIdAnonimo, userId) {
+  if (!clientIdAnonimo || !isSafeId(clientIdAnonimo) || clientIdAnonimo === userId) return;
+  const oldDir = path.join(FILES_DIR, clientIdAnonimo);
+  if (!fs.existsSync(oldDir)) return;
+  const newDir = path.join(FILES_DIR, userId);
+  if (!fs.existsSync(newDir)) {
+    fs.renameSync(oldDir, newDir);
+    return;
+  }
+  for (const f of fs.readdirSync(oldDir)) {
+    const dest = path.join(newDir, f);
+    if (!fs.existsSync(dest)) {
+      fs.renameSync(path.join(oldDir, f), dest);
+    }
+  }
+}
+
+app.post('/auth/google', async (req, res) => {
+  const { idToken, clientIdAnonimo } = req.body;
+  if (!idToken) {
+    return res.status(400).json({ error: 'Campo idToken é obrigatório.' });
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
+    payload = ticket.getPayload();
+  } catch (err) {
+    console.error('Falha ao verificar idToken do Google:', err.message);
+    return res.status(401).json({ error: 'Token do Google inválido.' });
+  }
+
+  const userId = payload.sub; // nunca usar o e-mail como chave — ele pode mudar.
+  const email = payload.email;
+  const name = payload.name || '';
+
+  const usuarios = readUsuarios();
+  const isNewUser = !usuarios[userId];
+  usuarios[userId] = {
+    email, name,
+    createdAt: isNewUser ? new Date().toISOString() : usuarios[userId].createdAt
+  };
+  writeUsuarios(usuarios);
+
+  migrarPastaAnonima(clientIdAnonimo, userId);
+
+  const token = jwt.sign({ userId, email }, SESSION_SECRET, { expiresIn: '90d' });
+  res.json({ token, email, name, isNewUser });
+});
+
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return res.status(401).json({ error: 'Não autenticado.' });
+  }
+  try {
+    req.userId = jwt.verify(token, SESSION_SECRET).userId;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+  }
+}
+
 const PROMPT = `Você está analisando uma foto de cupom fiscal / recibo de uma despesa de viagem corporativa (alimentação, combustível ou outra despesa). Responda APENAS com um objeto JSON puro, sem markdown, sem texto adicional, exatamente neste formato:
 {"categoria": "combustivel", "data": "YYYY-MM-DD", "valor": 0.00, "estabelecimento": "nome ou null"}
 
@@ -56,7 +143,7 @@ Regras:
 - "valor": valor TOTAL do cupom, número com ponto decimal (nunca vírgula).
 - Se não conseguir ler o cupom com confiança, use "categoria":"outros" e os demais campos null.`;
 
-app.post('/analisar-cupom', async (req, res) => {
+app.post('/analisar-cupom', requireAuth, async (req, res) => {
   try {
     const { imageBase64, mediaType } = req.body;
     if (!imageBase64) {
@@ -115,30 +202,29 @@ app.post('/analisar-cupom', async (req, res) => {
   }
 });
 
-// Arquivos dos cupons (fotos/PDFs), guardados no disco do servidor por clientId.
-// clientId é só um identificador técnico gerado no aparelho (sem login/senha),
-// usado para organizar as pastas — o servidor não valida quem é o dono.
-app.post('/arquivo', (req, res) => {
-  const { clientId, expenseId, base64, mediaType } = req.body;
-  if (!clientId || !expenseId || !base64) {
-    return res.status(400).json({ error: 'Campos clientId, expenseId e base64 são obrigatórios.' });
+// Arquivos dos cupons (fotos/PDFs), guardados no disco do servidor por usuário
+// logado (req.userId, preenchido pelo requireAuth a partir da sessão).
+app.post('/arquivo', requireAuth, (req, res) => {
+  const { expenseId, base64, mediaType } = req.body;
+  if (!expenseId || !base64) {
+    return res.status(400).json({ error: 'Campos expenseId e base64 são obrigatórios.' });
   }
-  if (!isSafeId(clientId) || !isSafeId(expenseId)) {
-    return res.status(400).json({ error: 'clientId e expenseId só podem conter letras, números e hífen.' });
+  if (!isSafeId(expenseId)) {
+    return res.status(400).json({ error: 'expenseId só pode conter letras, números e hífen.' });
   }
   const ext = extForMediaType(mediaType);
-  const clientDir = path.join(FILES_DIR, clientId);
+  const clientDir = path.join(FILES_DIR, req.userId);
   fs.mkdirSync(clientDir, { recursive: true });
   fs.writeFileSync(path.join(clientDir, `${expenseId}.${ext}`), Buffer.from(base64, 'base64'));
   res.json({ ok: true });
 });
 
-app.get('/arquivo/:clientId/:expenseId', (req, res) => {
-  const { clientId, expenseId } = req.params;
-  if (!isSafeId(clientId) || !isSafeId(expenseId)) {
-    return res.status(400).json({ error: 'clientId e expenseId só podem conter letras, números e hífen.' });
+app.get('/arquivo/:expenseId', requireAuth, (req, res) => {
+  const { expenseId } = req.params;
+  if (!isSafeId(expenseId)) {
+    return res.status(400).json({ error: 'expenseId só pode conter letras, números e hífen.' });
   }
-  const filePath = findClientFile(clientId, expenseId);
+  const filePath = findClientFile(req.userId, expenseId);
   if (!filePath) {
     return res.status(404).json({ error: 'Arquivo não encontrado.' });
   }
@@ -146,12 +232,12 @@ app.get('/arquivo/:clientId/:expenseId', (req, res) => {
   res.sendFile(filePath);
 });
 
-app.delete('/arquivo/:clientId/:expenseId', (req, res) => {
-  const { clientId, expenseId } = req.params;
-  if (!isSafeId(clientId) || !isSafeId(expenseId)) {
-    return res.status(400).json({ error: 'clientId e expenseId só podem conter letras, números e hífen.' });
+app.delete('/arquivo/:expenseId', requireAuth, (req, res) => {
+  const { expenseId } = req.params;
+  if (!isSafeId(expenseId)) {
+    return res.status(400).json({ error: 'expenseId só pode conter letras, números e hífen.' });
   }
-  const filePath = findClientFile(clientId, expenseId);
+  const filePath = findClientFile(req.userId, expenseId);
   if (filePath) {
     try { fs.unlinkSync(filePath); } catch (e) { /* já removido, tudo bem */ }
   }
