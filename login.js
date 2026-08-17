@@ -3,7 +3,7 @@
 
 // Client ID OAuth do projeto no Google Cloud Console. Precisa ser o mesmo
 // valor colado em backend/.env (GOOGLE_CLIENT_ID) — é público, não é segredo.
-const GOOGLE_CLIENT_ID = 'COLE_AQUI_DEPOIS';
+const GOOGLE_CLIENT_ID = '117190178191-etag6gn42tamhpc8iphb6uorad39tgtu.apps.googleusercontent.com';
 
 function mostrarErroLogin(msg){
   const el = document.getElementById('login-erro');
