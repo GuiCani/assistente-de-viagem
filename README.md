@@ -1,13 +1,13 @@
 # Assistente de Viagem
 
-App pessoal para controle de despesas de viagens a trabalho: fotografa (ou envia em PDF) o cupom fiscal, a IA identifica categoria (alimentação, combustível, outros), data e valor, organiza por viagem e calcula a cota diária de alimentação por região.
+App pessoal para controle de despesas de viagens a trabalho: fotografa (ou envia em PDF) o cupom fiscal, a IA identifica categoria, data e valor (categorias detalhadas na seção Versão 2.0 abaixo), organiza por viagem e calcula a cota diária de alimentação por região.
 
 ## Estado atual: app independente, rodando fora do Claude
 
 O app roda sozinho, hospedado no GitHub Pages, chamando um servidor próprio (Raspberry Pi em casa) que fala com a API do Gemini.
 
 ```
-Celular (index.html) → Raspberry Pi (backend/server.js, via Tailscale Funnel) → API do Gemini
+Celular (index.html / historico.html) → Raspberry Pi (backend/server.js, via Tailscale Funnel) → API do Gemini
 ```
 
 - **Armazenamento**: modelo híbrido.
@@ -49,6 +49,11 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
 - **Fase 2** (branch `fase-2-chave-api-propria`, não usada na versão final): cada pessoa configurava a própria chave de API. Abandonada em favor do servidor próprio, mais seguro.
 - **Fase 3**: servidor próprio no Raspberry Pi escondendo a chave.
 - **Fase 4**: `index.html` separado em três arquivos (`index.html`, `style.css`, `app.js`), e os ícones extraídos de base64 embutido para arquivos `.png` reais na pasta `icons/`.
+- **Fase 5**: histórico de viagens encerradas movido para uma página própria (`historico.html`).
+  - `shared.js` novo: reúne o que as duas páginas usam em comum (armazenamento, formatação, geração de ZIP, etc.).
+  - `index.html` passa a mostrar só a viagem ativa, cotas por região e escaneamento de cupom — nada sobre viagens encerradas fica lá, nem a mais recente.
+  - `historico.html` + `historico.js`: página nova, mostrando **todas** as viagens encerradas (decisão: manter todas ali, não só a mais recente).
+  - Menu de navegação simples no topo das duas páginas, alternando entre "Viagem atual" e "Histórico".
 
 ### Melhorias adicionais (fora do roadmap principal, já em produção)
 
@@ -60,7 +65,6 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
 
 ## Próximos passos
 
-- **Fase 5** (planejado, não iniciado): criar uma página separada para o histórico de viagens. Ideia: a página principal passa a mostrar só a última viagem encerrada (resumo rápido), e o histórico completo (todas as viagens antigas, com os botões de baixar ZIP de novo) muda para uma página própria, acessada por um link/menu.
 - **Fase 6 (parcial ✅ feito, resto será concluído junto com a Fase 7, Etapa 2)**: mover o armazenamento de `localStorage` para o servidor.
   - ✅ **Feito**: as imagens/PDFs dos cupons já ficam salvas no HD externo do Raspberry Pi (`FILES_DIR`), organizadas por um identificador único gerado automaticamente no aparelho (sem login) — resolve o problema de estourar o espaço do navegador com arquivos grandes.
   - **Ainda pendente**: categoria/data/valor das despesas e viagens continuam só no `localStorage` — resolvido na Fase 7, Etapa 2 (ver abaixo).
@@ -72,24 +76,24 @@ Cada pessoa acessa pelo link do GitHub Pages, e pode instalar como app (PWA) dir
   - Armazenamento de dados em arquivos JSON simples (mesmo estilo das imagens), sem instalar banco de dados no Pi — decisão consciente pelo tamanho do projeto (poucos usuários).
 
 
-## Versão 2.0 (planejado, não iniciado — categorias alinhadas ao portal de reembolso da empresa)
+## Versão 2.0 (✅ feito — categorias alinhadas ao portal de reembolso da empresa)
 
-Hoje o app classifica cada cupom em só 3 categorias (Combustível, Alimentação, Outros). O portal de reembolso da empresa pede 6 categorias separadas, então a v2.0 expande pra bater com ele:
+O app classificava cada cupom em só 3 categorias (Combustível, Alimentação, Outros). O portal de reembolso da empresa pede 6 categorias separadas, então a v2.0 expandiu pra bater com ele:
 
 - **Combustível / KM Rodado** ⛽ — detectado automaticamente pela IA (postos de gasolina, etanol, diesel).
 - **Alimentação** 🍽 — detectado automaticamente pela IA.
-- **Pedágio** 🎫 — detectado automaticamente pela IA (hoje cai em "Outros").
-- **Transporte "táxi, uber, etc"** 🚕 — detectado automaticamente pela IA (hoje cai em "Outros").
-- **Almoço Negócio (Coop. Potenciais)** 💰 — **só escolha manual**: um cupom de almoço comum e um de almoço de negócio são visualmente idênticos (o que muda é quem estava na mesa), então a IA sempre classifica como "Alimentação" normal, e a pessoa reclassifica manualmente na tela de edição quando for o caso.
+- **Pedágio** 🎫 — detectado automaticamente pela IA (antes caía em "Outros").
+- **Transporte "táxi, uber, etc"** 🚕 — detectado automaticamente pela IA (antes caía em "Outros").
+- **Almoço Negócio (Coop. Potenciais)** 💰 — **só escolha manual**: um cupom de almoço comum e um de almoço de negócio são visualmente idênticos (o que muda é quem estava na mesa), então a IA sempre classifica como "Alimentação" normal, e a pessoa reclassifica manualmente quando for o caso — seja pela tela de edição completa, seja pelo botão de alternância rápida (🍽/💰) que aparece direto no card da despesa para essas duas categorias, sem precisar abrir a edição.
 - **Outros** 🧾 — o que sobrar (hospedagem, estacionamento, manutenção de veículo, etc.).
 
 **Layout do "Total da viagem"**: 6 caixinhas (testado e aprovado — cabe bem no celular mesmo com 6 categorias), na ordem: Combustível, Alimentação, Pedágio, Almoço Negócio, Transporte, Outros.
 
-Pontos técnicos já mapeados pra quando for implementar:
-- `CATS` (em `app.js`) ganha as chaves novas (`pedagio`, `transporte`, `almoco_negocio`), com ícone/label/cor cada uma.
-- A tela de edição de despesa já lê as categorias direto do objeto `CATS` — só de adicionar as chaves novas, o dropdown de reclassificação manual já aparece atualizado, sem precisar de UI nova.
-- O prompt do Gemini (`backend/server.js`) precisa listar as 5 categorias detectáveis (nunca oferecer `almoco_negocio` como opção pra IA escolher sozinha).
-- Exportação em ZIP também ganha as pastas novas por categoria.
+Pontos técnicos:
+- `CATS` (em `shared.js`) tem as 6 chaves (`combustivel`, `alimentacao`, `pedagio`, `transporte`, `almoco_negocio`, `outros`), com ícone/label/cor cada uma.
+- A tela de edição de despesa lê as categorias direto do objeto `CATS` — o dropdown de reclassificação manual reflete as chaves automaticamente, sem UI extra.
+- O prompt do Gemini (`backend/server.js`) lista as 5 categorias detectáveis pela IA (nunca oferece `almoco_negocio` como opção pra IA escolher sozinha).
+- Exportação em ZIP tem uma pasta por categoria, incluindo as 3 novas.
 
 **Nota**: já foi cogitado o oposto — juntar Combustível + Uber + pedágio numa única categoria "Transporte" — mas essa ideia foi descartada, porque o portal de reembolso da empresa exige justamente o contrário (categorias mais separadas, não mais juntas).
 
@@ -97,9 +101,12 @@ Pontos técnicos já mapeados pra quando for implementar:
 
 ```
 assistente-de-viagem/
-├── index.html          # Estrutura da página (frontend)
-├── style.css            # Estilos
-├── app.js               # Lógica do app (viagens, cotas, cupons, armazenamento)
+├── index.html      # Página principal (viagem ativa)
+├── historico.html  # Página de histórico (viagens encerradas)
+├── style.css       # Estilos (compartilhado pelas duas páginas)
+├── shared.js       # Código compartilhado: armazenamento, formatação, geração de ZIP
+├── app.js          # Lógica da página principal (viagem ativa, cotas, cupons)
+├── historico.js    # Lógica da página de histórico (listar, reabrir, remover viagens)
 ├── icons/
 │   ├── icon-180.png      # Ícone para "Adicionar à tela inicial" (iOS)
 │   ├── icon-192.png      # Ícone do manifest (PWA)
