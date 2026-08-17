@@ -1,12 +1,18 @@
 // app.js — lógica específica da página principal (viagem ativa).
 // Estado e utilitários compartilhados com historico.html estão em shared.js.
 
+const session = requireSession(); // sem sessão, já redireciona pro login.html
+
 let editingId = null;
 let settingsOpen = false;
 let editingTripId = null;
 let editingTripRegionId = null;
 let editingRegionId = null;
 let viewingImageId = null;
+// blob: URLs dos arquivos servidos pelo backend (que agora exige o header
+// Authorization — <img>/<a href> não conseguem mandar header, então
+// buscamos com authFetch e guardamos aqui o object URL gerado.
+let viewUrlCache = {};
 
 function toggleSettings(){ settingsOpen = !settingsOpen; render(); }
 
@@ -154,10 +160,10 @@ async function handleFile(file){
 
   const avisoUpload = 'Cupom lido, mas não foi possível salvar o arquivo no servidor — tente novamente ou baixe o ZIP logo.';
   try{
-    const uploadResp = await fetch(`${BACKEND_BASE}/arquivo`, {
+    const uploadResp = await authFetch(`${BACKEND_BASE}/arquivo`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ clientId: CLIENT_ID, expenseId: id, base64, mediaType })
+      body: JSON.stringify({ expenseId: id, base64, mediaType })
     });
     const uploadData = await uploadResp.json().catch(() => ({}));
     if(uploadResp.ok && uploadData.ok){ setResult(id, { serverStored: true }); }
@@ -168,7 +174,7 @@ async function handleFile(file){
 
   let response, data;
   try{
-    response = await fetch(BACKEND_URL, {
+    response = await authFetch(BACKEND_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ imageBase64: base64, mediaType })
@@ -216,10 +222,11 @@ async function deleteExpense(id){
   expenses = expenses.filter(e => e.id !== id);
   await saveExpenses();
   if(expense && expense.serverStored){
-    try{ await fetch(`${BACKEND_BASE}/arquivo/${CLIENT_ID}/${id}`, { method:'DELETE' }); }catch(e){}
+    try{ await authFetch(`${BACKEND_BASE}/arquivo/${id}`, { method:'DELETE' }); }catch(e){}
   }
   try{ await window.storage.delete('despesas-img:'+id, false); }catch(e){}
   delete imageCache[id];
+  delete viewUrlCache[id];
   render();
 }
 
@@ -243,7 +250,18 @@ function saveEdit(id){
 
 async function toggleImage(id){
   if(viewingImageId === id){ viewingImageId = null; render(); return; }
-  if(!imageCache[id]){
+  const expense = expenses.find(x => x.id === id);
+  if(expense && expense.serverStored){
+    if(!viewUrlCache[id]){
+      try{
+        const resp = await authFetch(`${BACKEND_BASE}/arquivo/${id}`);
+        if(resp.ok){
+          const blob = await resp.blob();
+          viewUrlCache[id] = URL.createObjectURL(blob);
+        }
+      }catch(e){ /* cupomViewHtml mostra vazio se nao conseguiu buscar */ }
+    }
+  }else if(!imageCache[id]){
     try{
       const r = await window.storage.get('despesas-img:'+id, false);
       imageCache[id] = r ? r.value : null;
@@ -255,7 +273,8 @@ async function toggleImage(id){
 
 function cupomViewHtml(e){
   if(e.serverStored){
-    const url = `${BACKEND_BASE}/arquivo/${CLIENT_ID}/${e.id}`;
+    const url = viewUrlCache[e.id];
+    if(!url) return '';
     return e.mediaType === 'application/pdf'
       ? `<a class="stub-pdf-link" href="${url}" target="_blank" rel="noopener">📄 Abrir PDF</a>`
       : `<img class="stub-img" src="${url}">`;
@@ -475,12 +494,14 @@ function renderList(){
   }).join('');
 }
 
-const dropzone = document.getElementById('dropzone');
-const fileInput = document.getElementById('file-input');
-dropzone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', (ev) => { const file = ev.target.files[0]; handleFile(file); fileInput.value = ''; });
-dropzone.addEventListener('dragover', (ev) => { ev.preventDefault(); dropzone.classList.add('drag'); });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
-dropzone.addEventListener('drop', (ev) => { ev.preventDefault(); dropzone.classList.remove('drag'); handleFile(ev.dataTransfer.files[0]); });
+if(session){
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+  dropzone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (ev) => { const file = ev.target.files[0]; handleFile(file); fileInput.value = ''; });
+  dropzone.addEventListener('dragover', (ev) => { ev.preventDefault(); dropzone.classList.add('drag'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+  dropzone.addEventListener('drop', (ev) => { ev.preventDefault(); dropzone.classList.remove('drag'); handleFile(ev.dataTransfer.files[0]); });
 
-loadAll().then(render);
+  loadAll().then(render);
+}
