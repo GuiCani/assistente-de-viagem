@@ -21,7 +21,56 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 // Pasta onde ficam os arquivos (fotos/PDFs) dos cupons, organizados por userId.
 // Aponte FILES_DIR pro HD externo em produção (ex: /mnt/hd/assistente-viagem-arquivos).
 const FILES_DIR = path.resolve(process.env.FILES_DIR || path.join(__dirname, 'uploads'));
-fs.mkdirSync(FILES_DIR, { recursive: true });
+
+// Ponto de montagem do HD externo (ex: /media/devmon/NasPi). Opcional, mas
+// recomendado em produção: sem ele, se o HD não montar, ou o mkdir falha com
+// EACCES (e o pm2 fica reiniciando em loop) ou, pior, as fotos vão parar
+// caladas no cartão SD, numa pasta vazia que só parece ser o HD.
+const FILES_MOUNTPOINT = process.env.FILES_MOUNTPOINT ? path.resolve(process.env.FILES_MOUNTPOINT) : null;
+
+// Código 78 (EX_CONFIG): erro de ambiente/configuração, não bug do código.
+// O pm2 (ecosystem.config.js) espera restart_delay antes de tentar de novo.
+const EXIT_STORAGE_ERROR = 78;
+
+function falhaArmazenamento(msg) {
+  console.error(`ERRO DE ARMAZENAMENTO: ${msg}`);
+  console.error('O servidor não vai subir sem um lugar gravável pros arquivos. Confira se o HD externo está ligado e montado (lsblk -f; mount | grep NasPi).');
+  process.exit(EXIT_STORAGE_ERROR);
+}
+
+function verificarArmazenamento() {
+  if (FILES_MOUNTPOINT) {
+    let st;
+    try { st = fs.statSync(FILES_MOUNTPOINT); } catch (e) {
+      falhaArmazenamento(`ponto de montagem ${FILES_MOUNTPOINT} não existe (${e.code}). O HD provavelmente não foi detectado/montado.`);
+    }
+    if (!st.isDirectory()) {
+      falhaArmazenamento(`${FILES_MOUNTPOINT} existe mas não é uma pasta.`);
+    }
+    // Se a pasta está no mesmo dispositivo que a pasta-pai, nada está montado
+    // ali — é só uma pasta comum no cartão SD.
+    if (st.dev === fs.statSync(path.dirname(FILES_MOUNTPOINT)).dev) {
+      falhaArmazenamento(`${FILES_MOUNTPOINT} existe mas não há nenhum disco montado nela.`);
+    }
+    const rel = path.relative(FILES_MOUNTPOINT, FILES_DIR);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      falhaArmazenamento(`FILES_DIR (${FILES_DIR}) não fica dentro de FILES_MOUNTPOINT (${FILES_MOUNTPOINT}).`);
+    }
+  }
+
+  // Sobe até o primeiro ancestral que existe e confere permissão de escrita
+  // nele, pra dar um erro claro em vez de um EACCES cru do mkdir.
+  let alvo = FILES_DIR;
+  while (!fs.existsSync(alvo) && path.dirname(alvo) !== alvo) alvo = path.dirname(alvo);
+  try { fs.accessSync(alvo, fs.constants.W_OK); } catch (e) {
+    falhaArmazenamento(`sem permissão de escrita em ${alvo} (${e.code}), necessária para FILES_DIR=${FILES_DIR}.`);
+  }
+  try { fs.mkdirSync(FILES_DIR, { recursive: true }); } catch (e) {
+    falhaArmazenamento(`não foi possível criar ${FILES_DIR} (${e.code}).`);
+  }
+}
+
+verificarArmazenamento();
 
 function extForMediaType(mediaType) {
   return mediaType === 'application/pdf' ? 'pdf' : 'jpg';

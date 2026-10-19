@@ -29,10 +29,12 @@ Veja os comentários em `backend/server.js` para os detalhes do servidor. Resumo
 cd backend
 npm install
 cp .env.example .env   # cole sua chave do Gemini, e aponte FILES_DIR pro HD externo se tiver um
-npm start              # ou: pm2 start server.js --name servidor-cupons
+npm start              # ou, no Pi: pm2 start ecosystem.config.js && pm2 save
 ```
 
 `FILES_DIR` (no `.env`) define onde as imagens/PDFs dos cupons são guardadas. Se não definir, usa uma pasta `uploads` dentro do próprio `backend/` (não recomendado em produção — prefira apontar pra um disco com bastante espaço).
+
+`FILES_MOUNTPOINT` (opcional, recomendado no Pi) é o ponto de montagem do HD externo (ex: `/media/devmon/NasPi`). Se definido, o servidor só sobe se houver um disco realmente montado ali e `FILES_DIR` estiver dentro dele; caso contrário, loga um erro claro e sai com código 78, e o pm2 (via `ecosystem.config.js`) tenta de novo a cada 1 minuto em vez de reiniciar em loop.
 
 Exponha para a internet com Tailscale Funnel:
 ```bash
