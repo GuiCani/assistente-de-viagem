@@ -34,6 +34,28 @@ npm start              # ou: pm2 start server.js --name servidor-cupons
 
 `FILES_DIR` (no `.env`) define onde as imagens/PDFs dos cupons são guardadas. Se não definir, usa uma pasta `uploads` dentro do próprio `backend/` (não recomendado em produção — prefira apontar pra um disco com bastante espaço).
 
+#### Leitura de cupons: retry e modelo de reserva
+
+A API do Gemini às vezes responde `503 UNAVAILABLE` ("high demand") ou demora demais. Em vez de desistir na primeira falha, o servidor:
+
+1. Tenta o modelo principal (`gemini-flash-latest`) até **3 vezes**, esperando **2s** e depois **5s** entre as tentativas — **só** para `503`, `500` e timeout.
+2. Se o principal esgotar as tentativas, tenta o **modelo de reserva** (`GEMINI_FALLBACK_MODEL`, padrão `gemini-2.5-flash`) até **2 vezes**.
+3. Cada tentativa tem timeout de `GEMINI_TIMEOUT_MS` (padrão 30s) e a leitura inteira respeita o prazo total `GEMINI_TOTAL_BUDGET_MS` (padrão 60s). Estourou tudo → o app recebe HTTP 503 com "O serviço de leitura (Gemini) está sobrecarregado. Tente novamente em alguns minutos."
+
+Sem retry: `400`, `401`, `403`, `404` (erro definitivo, devolvido na hora) e `429` (limite por minuto — mantém a mensagem "Limite de leituras por minuto atingido..."). Se o modelo de reserva responder `404`, isso aparece em destaque no log (o nome do modelo provavelmente mudou).
+
+**Diagnóstico** (no Raspberry Pi):
+```bash
+pm2 logs servidor-cupons --lines 100
+```
+Cada leitura gera linhas `[gemini <id>]` com o modelo usado, o número da tentativa, o motivo de cada falha (ex.: `HTTP 503 (UNAVAILABLE: ...)`, `timeout após 30000ms`) e qual modelo acabou respondendo. O conteúdo do cupom e a chave nunca são logados.
+
+Para ver quais modelos estão respondendo agora (somente leitura; imprime só modelo e código HTTP):
+```bash
+cd backend && bash scripts/testar-modelos.sh
+```
+`200` = ok, `503`/`500` = sobrecarregado, `429` = limite, `404` = modelo não existe (troque `GEMINI_FALLBACK_MODEL` no `.env` e rode `pm2 restart servidor-cupons`).
+
 Exponha para a internet com Tailscale Funnel:
 ```bash
 sudo tailscale funnel --bg 3000
@@ -107,7 +129,9 @@ assistente-de-viagem/
 ├── backend/
 │   ├── server.js        # Servidor que fala com o Gemini e guarda os arquivos (roda no Raspberry Pi)
 │   ├── package.json
-│   ├── .env.example      # Inclui GEMINI_API_KEY, PORT e FILES_DIR
+│   ├── .env.example      # Inclui GEMINI_API_KEY, PORT, FILES_DIR e as opções GEMINI_* de retry/fallback
+│   ├── scripts/
+│   │   └── testar-modelos.sh  # Diagnóstico: código HTTP de cada modelo do Gemini (somente leitura)
 │   └── .gitignore
 └── README.md
 ```
