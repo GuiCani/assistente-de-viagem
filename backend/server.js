@@ -157,6 +157,12 @@ const GEMINI_LIMITE = 'Limite de leituras por minuto atingido. Espere um minuto 
 const TENTATIVAS_PRINCIPAL = 3;
 const TENTATIVAS_RESERVA = 2;
 const ESPERAS_MS = [2000, 5000]; // espera antes da 2ª e da 3ª tentativa
+// Não vale começar uma tentativa com menos tempo que isso pela frente.
+const MIN_TENTATIVA_MS = Math.min(5000, Math.floor(GEMINI_TOTAL_BUDGET_MS / 4));
+// Parte do prazo total guardada para o modelo de reserva: sem isso, quando o
+// principal trava até o timeout (30s + 30s), ele consome o prazo inteiro e a
+// reserva nunca chega a ser tentada.
+const RESERVA_PRAZO_MS = Math.min(25000, Math.floor(GEMINI_TOTAL_BUDGET_MS / 2));
 
 // Nunca deixar a chave vazar pros logs, mesmo que apareça numa URL ou mensagem de erro.
 function semChave(texto) {
@@ -224,22 +230,22 @@ async function chamarGemini(modelo, corpoJson, timeoutMs) {
 }
 
 // Tenta um modelo até `maxTentativas` vezes, com espera crescente, só para erros retentáveis.
-// Respeita o prazo total (`prazoFinal`, em ms desde epoch).
-async function tentarModelo(rid, modelo, maxTentativas, corpoJson, prazoFinal, contador) {
+// Respeita o prazo deste modelo (`prazo`, em ms desde epoch).
+async function tentarModelo(rid, modelo, maxTentativas, corpoJson, prazo, contador) {
   let ultimo = null;
   for (let i = 1; i <= maxTentativas; i++) {
     if (i > 1) {
       const espera = ESPERAS_MS[Math.min(i - 2, ESPERAS_MS.length - 1)];
-      // Só vale esperar se depois ainda sobrar pelo menos 1s pra tentar.
-      if (prazoFinal - Date.now() < espera + 1000) {
-        console.warn(`[gemini ${rid}] ${modelo}: prazo total esgotado, sem tempo para a tentativa ${i}/${maxTentativas}.`);
+      // Só vale esperar se depois ainda sobrar tempo útil pra tentar.
+      if (prazo - Date.now() < espera + MIN_TENTATIVA_MS) {
+        console.warn(`[gemini ${rid}] ${modelo}: sem tempo no prazo para a tentativa ${i}/${maxTentativas}.`);
         return { ...ultimo, prazoEsgotado: true };
       }
       await dormir(espera);
     }
-    const restante = prazoFinal - Date.now();
-    if (restante < 1000) {
-      console.warn(`[gemini ${rid}] ${modelo}: prazo total esgotado antes da tentativa ${i}/${maxTentativas}.`);
+    const restante = prazo - Date.now();
+    if (restante < MIN_TENTATIVA_MS) {
+      console.warn(`[gemini ${rid}] ${modelo}: prazo esgotado antes da tentativa ${i}/${maxTentativas}.`);
       return { ...(ultimo || { tipo: 'retentavel', motivo: 'prazo total esgotado' }), prazoEsgotado: true };
     }
     const timeoutMs = Math.min(GEMINI_TIMEOUT_MS, restante);
@@ -291,8 +297,10 @@ app.post('/analisar-cupom', requireAuth, async (req, res) => {
       return res.status(503).json({ error: GEMINI_SOBRECARREGADO });
     };
 
-    // 1) Modelo principal
-    const r1 = await tentarModelo(rid, GEMINI_MODEL, TENTATIVAS_PRINCIPAL, corpoJson, prazoFinal, contador);
+    // 1) Modelo principal (deixa RESERVA_PRAZO_MS do prazo para a reserva, se houver)
+    const temReserva = GEMINI_FALLBACK_MODEL && GEMINI_FALLBACK_MODEL !== GEMINI_MODEL;
+    const prazoPrincipal = temReserva ? prazoFinal - RESERVA_PRAZO_MS : prazoFinal;
+    const r1 = await tentarModelo(rid, GEMINI_MODEL, TENTATIVAS_PRINCIPAL, corpoJson, prazoPrincipal, contador);
     if (r1.tipo === 'sucesso') { finalizar(GEMINI_MODEL); return res.json({ text: r1.text }); }
     if (r1.tipo === 'limite') return responderLimite(GEMINI_MODEL);
     if (r1.tipo === 'definitivo') {
@@ -301,12 +309,12 @@ app.post('/analisar-cupom', requireAuth, async (req, res) => {
     }
 
     // 2) Modelo de reserva (só quando o principal esgotou por erro retentável)
-    if (!GEMINI_FALLBACK_MODEL || GEMINI_FALLBACK_MODEL === GEMINI_MODEL) {
+    if (!temReserva) {
       console.warn(`[gemini ${rid}] sem modelo de reserva distinto configurado.`);
       return responderSobrecarga();
     }
-    if (prazoFinal - Date.now() < 1000) return responderSobrecarga();
-    console.warn(`[gemini ${rid}] ${GEMINI_MODEL} esgotou as tentativas; usando modelo de reserva ${GEMINI_FALLBACK_MODEL}.`);
+    if (prazoFinal - Date.now() < MIN_TENTATIVA_MS) return responderSobrecarga();
+    console.warn(`[gemini ${rid}] ${GEMINI_MODEL} esgotou as tentativas/prazo; usando modelo de reserva ${GEMINI_FALLBACK_MODEL}.`);
     const r2 = await tentarModelo(rid, GEMINI_FALLBACK_MODEL, TENTATIVAS_RESERVA, corpoJson, prazoFinal, contador);
     if (r2.tipo === 'sucesso') { finalizar(GEMINI_FALLBACK_MODEL); return res.json({ text: r2.text }); }
     if (r2.tipo === 'limite') return responderLimite(GEMINI_FALLBACK_MODEL);
