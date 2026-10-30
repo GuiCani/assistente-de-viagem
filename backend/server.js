@@ -14,10 +14,10 @@ app.use(cors());
 app.use(express.json({ limit: '25mb' })); // fotos/PDFs em base64 podem ser grandes
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-flash-latest';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 // Modelo de reserva, usado quando o principal continua sobrecarregado (503/500/timeout)
 // depois de todas as tentativas.
-const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash';
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-flash-lite-latest';
 function intEnv(name, padrao) {
   const n = parseInt(process.env[name], 10);
   return Number.isFinite(n) && n > 0 ? n : padrao;

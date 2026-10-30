@@ -38,8 +38,8 @@ npm start              # ou: pm2 start server.js --name servidor-cupons
 
 A API do Gemini às vezes responde `503 UNAVAILABLE` ("high demand") ou demora demais. Em vez de desistir na primeira falha, o servidor:
 
-1. Tenta o modelo principal (`gemini-flash-latest`) até **3 vezes**, esperando **2s** e depois **5s** entre as tentativas — **só** para `503`, `500` e timeout.
-2. Se o principal esgotar as tentativas, tenta o **modelo de reserva** (`GEMINI_FALLBACK_MODEL`, padrão `gemini-2.5-flash`) até **2 vezes**.
+1. Tenta o modelo principal (`GEMINI_MODEL`, padrão `gemini-flash-latest`) até **3 vezes**, esperando **2s** e depois **5s** entre as tentativas — **só** para `503`, `500` e timeout.
+2. Se o principal esgotar as tentativas, tenta o **modelo de reserva** (`GEMINI_FALLBACK_MODEL`, padrão `gemini-flash-lite-latest`) até **2 vezes**.
 3. Cada tentativa tem timeout de `GEMINI_TIMEOUT_MS` (padrão 30s) e a leitura inteira respeita o prazo total `GEMINI_TOTAL_BUDGET_MS` (padrão 60s). Estourou tudo → o app recebe HTTP 503 com "O serviço de leitura (Gemini) está sobrecarregado. Tente novamente em alguns minutos."
 
 Sem retry: `400`, `401`, `403`, `404` (erro definitivo, devolvido na hora) e `429` (limite por minuto — mantém a mensagem "Limite de leituras por minuto atingido..."). Se o modelo de reserva responder `404`, isso aparece em destaque no log (o nome do modelo provavelmente mudou).
@@ -52,9 +52,13 @@ Cada leitura gera linhas `[gemini <id>]` com o modelo usado, o número da tentat
 
 Para ver quais modelos estão respondendo agora (somente leitura; imprime só modelo e código HTTP):
 ```bash
-cd backend && bash scripts/testar-modelos.sh
+cd backend && bash scripts/testar-modelos.sh                      # lista padrão
+bash scripts/testar-modelos.sh gemini-3.5-flash gemini-3.1-flash-lite  # modelos específicos
+bash scripts/testar-modelos.sh --listar                           # nomes que a sua chave enxerga
 ```
-`200` = ok, `503`/`500` = sobrecarregado, `429` = limite, `404` = modelo não existe (troque `GEMINI_FALLBACK_MODEL` no `.env` e rode `pm2 restart servidor-cupons`).
+`200` = ok, `503`/`500` = sobrecarregado, `429` = limite, `404` = modelo não existe/aposentado, `000` = sem resposta (o motivo aparece entre parênteses, ex.: timeout). Atenção: um modelo pode aparecer no `--listar` e mesmo assim dar `404` (já descontinuado) — sempre teste antes de usar.
+
+Para trocar de modelo, ajuste `GEMINI_MODEL` e/ou `GEMINI_FALLBACK_MODEL` no `.env` e rode `pm2 restart servidor-cupons`.
 
 Exponha para a internet com Tailscale Funnel:
 ```bash
