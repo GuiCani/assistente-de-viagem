@@ -40,7 +40,7 @@ A API do Gemini às vezes responde `503 UNAVAILABLE` ("high demand") ou demora d
 
 1. Tenta o modelo principal (`GEMINI_MODEL`, padrão `gemini-flash-latest`) até **3 vezes**, esperando **2s** e depois **5s** entre as tentativas — **só** para `503`, `500` e timeout.
 2. Se o principal esgotar as tentativas, tenta o **modelo de reserva** (`GEMINI_FALLBACK_MODEL`, padrão `gemini-flash-lite-latest`) até **2 vezes**.
-3. Cada tentativa tem timeout de `GEMINI_TIMEOUT_MS` (padrão 30s) e a leitura inteira respeita o prazo total `GEMINI_TOTAL_BUDGET_MS` (padrão 60s). Estourou tudo → o app recebe HTTP 503 com "O serviço de leitura (Gemini) está sobrecarregado. Tente novamente em alguns minutos."
+3. Cada tentativa tem timeout de `GEMINI_TIMEOUT_MS` (padrão 30s) e a leitura inteira respeita o prazo total `GEMINI_TOTAL_BUDGET_MS` (padrão 60s). Uma parte desse prazo (metade, no máximo 25s) fica guardada para a reserva: se o principal travar até o timeout, ele faz menos tentativas e a reserva ainda é tentada. Estourou tudo → o app recebe HTTP 503 com "O serviço de leitura (Gemini) está sobrecarregado. Tente novamente em alguns minutos."
 
 Sem retry: `400`, `401`, `403`, `404` (erro definitivo, devolvido na hora) e `429` (limite por minuto — mantém a mensagem "Limite de leituras por minuto atingido..."). Se o modelo de reserva responder `404`, isso aparece em destaque no log (o nome do modelo provavelmente mudou).
 
