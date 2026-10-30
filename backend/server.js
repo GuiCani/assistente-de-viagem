@@ -15,6 +15,15 @@ app.use(express.json({ limit: '25mb' })); // fotos/PDFs em base64 podem ser gran
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-flash-latest';
+// Modelo de reserva, usado quando o principal continua sobrecarregado (503/500/timeout)
+// depois de todas as tentativas.
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash';
+function intEnv(name, padrao) {
+  const n = parseInt(process.env[name], 10);
+  return Number.isFinite(n) && n > 0 ? n : padrao;
+}
+const GEMINI_TIMEOUT_MS = intEnv('GEMINI_TIMEOUT_MS', 30000);           // por tentativa
+const GEMINI_TOTAL_BUDGET_MS = intEnv('GEMINI_TOTAL_BUDGET_MS', 60000); // prazo total por requisição
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
@@ -143,62 +152,175 @@ Regras:
 - "valor": valor TOTAL do cupom, número com ponto decimal (nunca vírgula).
 - Se não conseguir ler o cupom com confiança, use "categoria":"outros" e os demais campos null.`;
 
+const GEMINI_SOBRECARREGADO = 'O serviço de leitura (Gemini) está sobrecarregado. Tente novamente em alguns minutos.';
+const GEMINI_LIMITE = 'Limite de leituras por minuto atingido. Espere um minuto e tente de novo.';
+const TENTATIVAS_PRINCIPAL = 3;
+const TENTATIVAS_RESERVA = 2;
+const ESPERAS_MS = [2000, 5000]; // espera antes da 2ª e da 3ª tentativa
+
+// Nunca deixar a chave vazar pros logs, mesmo que apareça numa URL ou mensagem de erro.
+function semChave(texto) {
+  let t = String(texto ?? '');
+  if (GEMINI_API_KEY) t = t.split(GEMINI_API_KEY).join('***');
+  return t.replace(/([?&]key=)[^&\s"']+/gi, '$1***').slice(0, 300);
+}
+
+const dormir = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Uma única chamada ao Gemini. Nunca lança: devolve um resultado classificado.
+//   { tipo: 'sucesso', text }
+//   { tipo: 'retentavel', motivo }                 -> 503, 500 ou timeout
+//   { tipo: 'limite', motivo }                     -> 429 (sem retry)
+//   { tipo: 'definitivo', status, motivo, mensagem } -> 400, 401, 403, 404 etc. (sem retry)
+async function chamarGemini(modelo, corpoJson, timeoutMs) {
+  // Timeout explícito: sem isso, se o Gemini travar, o pedido fica pendurado indefinidamente.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    // A chave vai no cabeçalho (não na URL), pra não aparecer em mensagens de erro.
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+        body: corpoJson,
+        signal: controller.signal
+      }
+    );
+
+    let data = null;
+    try { data = await response.json(); } catch (e) { /* corpo não-JSON */ }
+    const detalhe = data?.error
+      ? `${data.error.status || ''}${data.error.message ? ': ' + data.error.message : ''}`
+      : '';
+    const motivo = semChave(`HTTP ${response.status}${detalhe ? ' (' + detalhe + ')' : ''}`);
+
+    if (response.status === 429) return { tipo: 'limite', motivo };
+    if (response.status === 503 || response.status === 500) return { tipo: 'retentavel', motivo };
+    if (!response.ok || !data || data.error) {
+      return {
+        tipo: 'definitivo',
+        status: response.status,
+        motivo: data ? motivo : `${motivo} (resposta não-JSON)`,
+        mensagem: data?.error?.message ? semChave(data.error.message) : 'Erro na API do Gemini'
+      };
+    }
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    return { tipo: 'sucesso', text };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { tipo: 'retentavel', motivo: `timeout após ${timeoutMs}ms` };
+    }
+    return {
+      tipo: 'definitivo',
+      status: 0,
+      motivo: semChave(`falha de rede: ${err.message}${err.cause?.code ? ' (' + err.cause.code + ')' : ''}`),
+      mensagem: 'Não foi possível conectar ao serviço de leitura (Gemini).'
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Tenta um modelo até `maxTentativas` vezes, com espera crescente, só para erros retentáveis.
+// Respeita o prazo total (`prazoFinal`, em ms desde epoch).
+async function tentarModelo(rid, modelo, maxTentativas, corpoJson, prazoFinal, contador) {
+  let ultimo = null;
+  for (let i = 1; i <= maxTentativas; i++) {
+    if (i > 1) {
+      const espera = ESPERAS_MS[Math.min(i - 2, ESPERAS_MS.length - 1)];
+      // Só vale esperar se depois ainda sobrar pelo menos 1s pra tentar.
+      if (prazoFinal - Date.now() < espera + 1000) {
+        console.warn(`[gemini ${rid}] ${modelo}: prazo total esgotado, sem tempo para a tentativa ${i}/${maxTentativas}.`);
+        return { ...ultimo, prazoEsgotado: true };
+      }
+      await dormir(espera);
+    }
+    const restante = prazoFinal - Date.now();
+    if (restante < 1000) {
+      console.warn(`[gemini ${rid}] ${modelo}: prazo total esgotado antes da tentativa ${i}/${maxTentativas}.`);
+      return { ...(ultimo || { tipo: 'retentavel', motivo: 'prazo total esgotado' }), prazoEsgotado: true };
+    }
+    const timeoutMs = Math.min(GEMINI_TIMEOUT_MS, restante);
+    contador.total++;
+    const inicio = Date.now();
+    const r = await chamarGemini(modelo, corpoJson, timeoutMs);
+    const ms = Date.now() - inicio;
+    if (r.tipo === 'sucesso') {
+      console.log(`[gemini ${rid}] ${modelo}: tentativa ${i}/${maxTentativas} OK (${ms}ms).`);
+      return r;
+    }
+    console.warn(`[gemini ${rid}] ${modelo}: tentativa ${i}/${maxTentativas} falhou (${r.tipo}) em ${ms}ms: ${r.motivo}`);
+    ultimo = r;
+    if (r.tipo !== 'retentavel') return r;
+  }
+  return ultimo;
+}
+
 app.post('/analisar-cupom', requireAuth, async (req, res) => {
+  const rid = Math.random().toString(36).slice(2, 8); // id curto pra correlacionar as linhas de log
   try {
     const { imageBase64, mediaType } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: 'Campo imageBase64 é obrigatório.' });
     }
 
-    // Timeout explícito: sem isso, se o Gemini travar, o pedido fica
-    // pendurado indefinidamente e o app só recebe um erro genérico de rede.
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s
+    const corpoJson = JSON.stringify({
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { text: PROMPT }
+        ]
+      }]
+    });
 
-    let response;
-    try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: mediaType || 'image/jpeg', data: imageBase64 } },
-                { text: PROMPT }
-              ]
-            }]
-          }),
-          signal: controller.signal
-        }
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const inicio = Date.now();
+    const prazoFinal = inicio + GEMINI_TOTAL_BUDGET_MS;
+    const contador = { total: 0 };
+    const finalizar = (modelo) =>
+      console.log(`[gemini ${rid}] respondido por ${modelo} após ${contador.total} tentativa(s) em ${Date.now() - inicio}ms.`);
 
     // Limite de requisições (429): mensagem específica para diferenciar de outros erros.
-    if (response.status === 429) {
-      console.error('Gemini retornou 429 (limite de requisições atingido).');
-      return res.status(429).json({ error: 'Limite de leituras por minuto atingido. Espere um minuto e tente de novo.' });
+    const responderLimite = (modelo) => {
+      console.error(`[gemini ${rid}] ${modelo} retornou 429 (limite de requisições atingido). Sem retry.`);
+      return res.status(429).json({ error: GEMINI_LIMITE });
+    };
+    const responderSobrecarga = () => {
+      console.error(`[gemini ${rid}] desistindo após ${contador.total} tentativa(s) em ${Date.now() - inicio}ms: Gemini sobrecarregado.`);
+      return res.status(503).json({ error: GEMINI_SOBRECARREGADO });
+    };
+
+    // 1) Modelo principal
+    const r1 = await tentarModelo(rid, GEMINI_MODEL, TENTATIVAS_PRINCIPAL, corpoJson, prazoFinal, contador);
+    if (r1.tipo === 'sucesso') { finalizar(GEMINI_MODEL); return res.json({ text: r1.text }); }
+    if (r1.tipo === 'limite') return responderLimite(GEMINI_MODEL);
+    if (r1.tipo === 'definitivo') {
+      console.error(`[gemini ${rid}] ${GEMINI_MODEL}: erro definitivo, sem retry: ${r1.motivo}`);
+      return res.status(502).json({ error: r1.mensagem });
     }
 
-    const data = await response.json();
-
-    if (data.error) {
-      console.error('Erro da API do Gemini:', data.error);
-      return res.status(502).json({ error: data.error.message || 'Erro na API do Gemini' });
+    // 2) Modelo de reserva (só quando o principal esgotou por erro retentável)
+    if (!GEMINI_FALLBACK_MODEL || GEMINI_FALLBACK_MODEL === GEMINI_MODEL) {
+      console.warn(`[gemini ${rid}] sem modelo de reserva distinto configurado.`);
+      return responderSobrecarga();
     }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    res.json({ text });
+    if (prazoFinal - Date.now() < 1000) return responderSobrecarga();
+    console.warn(`[gemini ${rid}] ${GEMINI_MODEL} esgotou as tentativas; usando modelo de reserva ${GEMINI_FALLBACK_MODEL}.`);
+    const r2 = await tentarModelo(rid, GEMINI_FALLBACK_MODEL, TENTATIVAS_RESERVA, corpoJson, prazoFinal, contador);
+    if (r2.tipo === 'sucesso') { finalizar(GEMINI_FALLBACK_MODEL); return res.json({ text: r2.text }); }
+    if (r2.tipo === 'limite') return responderLimite(GEMINI_FALLBACK_MODEL);
+    if (r2.tipo === 'definitivo' && r2.status === 404) {
+      console.error(`[gemini ${rid}] ATENÇÃO: modelo de reserva "${GEMINI_FALLBACK_MODEL}" não encontrado (404). ` +
+        'Confira GEMINI_FALLBACK_MODEL no .env (rode backend/scripts/testar-modelos.sh).');
+    } else if (r2.tipo === 'definitivo') {
+      console.error(`[gemini ${rid}] ${GEMINI_FALLBACK_MODEL}: erro definitivo na reserva: ${r2.motivo}`);
+    }
+    return responderSobrecarga();
   } catch (err) {
-    if (err.name === 'AbortError') {
-      console.error('Timeout esperando resposta do Gemini.');
-      return res.status(504).json({ error: 'O servidor de leitura demorou demais para responder (timeout).' });
-    }
-    console.error('Erro interno:', err);
-    res.status(500).json({ error: 'Erro interno no servidor' });
+    // Só nome e mensagem: nada de imprimir objetos inteiros (podem conter a requisição/base64).
+    console.error(`[gemini ${rid}] Erro interno em /analisar-cupom: ${err?.name || 'Error'}: ${semChave(err?.message)}`);
+    if (!res.headersSent) res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
 
